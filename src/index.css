@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Agricultural earthy theme - Soft, clean off-white background */
+    --background: 60 20% 98%;
+    --foreground: 142 50% 15%; /* Dark green for text, highly readable */
+
+    /* Cards - off-white, warm */
+    --card: 45 40% 98%;
+    --card-foreground: 142 50% 15%;
+
+    --popover: 45 40% 98%;
+    --popover-foreground: 142 50% 15%;
+
+    /* Deep forest green from mockup */
+    --primary: 142 60% 25%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Warm earth tone */
+    --secondary: 40 30% 92%;
+    --secondary-foreground: 142 50% 15%;
+
+    /* Muted */
+    --muted: 60 15% 95%;
+    --muted-foreground: 142 20% 40%;
+
+    /* Accent - vibrant green or soft yellow/orange depending on mockup details, sticking to a lighter green accent */
+    --accent: 142 50% 35%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 60 15% 90%;
+    --input: 60 15% 90%;
+    --ring: 142 60% 25%;
+
+    /* More rounded aesthetic globally */
+    --radius: 1rem;
+
+    /* Custom agricultural colors */
+    --earth-brown: 32 35% 45%;
+    --leaf-green: 142 55% 35%;
+    --harvest-gold: 45 95% 55%;
+    --sky-blue: 200 65% 60%;
+    
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Keep dark mode but align it with the new green aesthetic if possible.  Since user wants high readability for farmers, maybe force light mode or keep this minimal for now */
+    --background: 142 40% 10%;
+    --foreground: 60 20% 95%;
+
+    --card: 142 30% 15%;
+    --card-foreground: 60 20% 95%;
+
+    --popover: 142 30% 15%;
+    --popover-foreground: 60 20% 95%;
+
+    --primary: 142 55% 45%;
+    --primary-foreground: 142 40% 10%;
+
+    --secondary: 142 20% 20%;
+    --secondary-foreground: 60 20% 95%;
+
+    --muted: 142 15% 20%;
+    --muted-foreground: 142 20% 75%;
+
+    --accent: 142 55% 40%;
+    --accent-foreground: 142 40% 10%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 142 20% 25%;
+    --input: 142 20% 25%;
+    --ring: 142 55% 45%;
+    
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+@layer utilities {
+  .text-gradient-primary {
+    /* Solid color for better readability based on mockup */
+    @apply text-primary drop-shadow-sm;
+  }
+  
+  .shadow-agricultural {
+    /* A softer, wider shadow for the cards */
+    box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.1), 0 4px 15px -4px hsl(var(--primary) / 0.05);
+  }
+
+  /* Utility classes for categorized backgrounds */
+  .bg-app-landing {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.3), rgba(0,0,0,0.5)), url('https://images.unsplash.com/photo-1590682680695-43b964a3ae17?q=80&w=2000&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  .bg-crops-selection {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?q=80&w=2000&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  .bg-problems-selection {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1560493676-04071c5f467b?q=80&w=2000&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  .bg-products-selection {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1589923188900-85dae523342b?q=80&w=2000&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  .bg-treatment-plan {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1464226184884-fa280b87c399?q=80&w=2000&auto=format&fit=crop');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+  
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in;
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

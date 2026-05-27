@@ -24,18 +24,21 @@ const ProductRecommendation = () => {
   const location = useLocation();
 
   const crop = (location.state as any)?.crop as Crop | undefined;
-  const problem = (location.state as any)?.problem as Problem | undefined;
+  const problems = (location.state as any)?.problems as Problem[] | undefined;
   const stage = (location.state as any)?.stage as string | undefined;
 
-  const [mappings, setMappings] = useState<ProductMapping[]>([]);
+  const problemIds = problems?.map(p => p.id) || [];
+
+  const [mappings, setMappings] = useState<(ProductMapping & { coveredProblems?: Problem[] })[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [selectedMapping, setSelectedMapping] = useState<ProductMapping | null>(null);
   const [acres, setAcres] = useState('');
   const [showAcresDialog, setShowAcresDialog] = useState(false);
+  const [combinationFound, setCombinationFound] = useState(true);
 
   useEffect(() => {
-    if (!problemId) {
+    if (problemIds.length === 0) {
       toast.error('Invalid problem selection');
       navigate('/');
       return;
@@ -55,7 +58,8 @@ const ProductRecommendation = () => {
               pack_sizes
             )
           `)
-          .eq('problem_id', problemId);
+          .in('problem_id', problemIds)
+          .eq('crop_id', crop?.id);
 
         if (stage) {
           query = query.eq('stage', stage);
@@ -65,7 +69,79 @@ const ProductRecommendation = () => {
 
         if (error) throw error;
 
-        setMappings((data as unknown as ProductMapping[]) || []);
+        const rawMappings = (data as unknown as ProductMapping[]) || [];
+        
+        // --- IMPROVED COVERAGE LOGIC ---
+        // Goal: Show ALL products that provide the best possible coverage for remaining problems
+        const finalMappings: (ProductMapping & { coveredProblems?: Problem[] })[] = [];
+        const remainingProblemIds = new Set(problemIds);
+        let firstIteration = true;
+        let combinationFound = false;
+
+        while (remainingProblemIds.size > 0) {
+          // Group remaining considerations
+          const productCoverageMap = new Map<string, { mapping: ProductMapping, coveredProblems: Set<string> }>();
+          
+          rawMappings.forEach(m => {
+            if (!productCoverageMap.has(m.product_id)) {
+              productCoverageMap.set(m.product_id, { mapping: m, coveredProblems: new Set() });
+            }
+            productCoverageMap.get(m.product_id)!.coveredProblems.add(m.problem_id);
+          });
+
+          // Find the maximum coverage possible for the remaining problems
+          let maxCoverage = 0;
+          for (const info of productCoverageMap.values()) {
+            const currentCoverage = [...info.coveredProblems].filter(pId => remainingProblemIds.has(pId)).length;
+            if (currentCoverage > maxCoverage) maxCoverage = currentCoverage;
+          }
+
+          if (maxCoverage === 0) break;
+
+          if (firstIteration && maxCoverage > 1) {
+            combinationFound = true;
+          }
+
+          // Collect ALL products that hit this max coverage
+          const bestProductsForThisRound: string[] = [];
+          for (const [productId, info] of productCoverageMap.entries()) {
+            const currentCoverage = [...info.coveredProblems].filter(pId => remainingProblemIds.has(pId)).length;
+            if (currentCoverage === maxCoverage) {
+              bestProductsForThisRound.push(productId);
+            }
+          }
+
+          // Add them to final list and update remaining problems
+          const problemsCoveredInThisRound = new Set<string>();
+          
+          bestProductsForThisRound.forEach(productId => {
+            const info = productCoverageMap.get(productId)!;
+            const coveredInRound = (problems || []).filter(p => info.coveredProblems.has(p.id) && remainingProblemIds.has(p.id));
+            
+            // We also want to know ALL problems it solves from the ORIGINAL selection for the treatment plan
+            const allCoveredFromSelection = (problems || []).filter(p => info.coveredProblems.has(p.id));
+
+            finalMappings.push({
+              ...info.mapping,
+              coveredProblems: allCoveredFromSelection
+            });
+
+            coveredInRound.forEach(p => problemsCoveredInThisRound.add(p.id));
+            
+            // Remove product from consideration for next rounds
+            rawMappings.splice(rawMappings.findIndex(m => m.product_id === productId), 1);
+          });
+
+          // Update remaining problems
+          problemsCoveredInThisRound.forEach(pId => remainingProblemIds.delete(pId));
+          firstIteration = false;
+        }
+
+        setMappings(finalMappings);
+        setCombinationFound(combinationFound);
+        if (!combinationFound && problemIds.length > 1) {
+          toast.info('Showing individual solutions.');
+        }
       } catch (err) {
         console.error(err);
         toast.error('Failed to load products');
@@ -75,7 +151,7 @@ const ProductRecommendation = () => {
     };
 
     fetchProducts();
-  }, [problemId, navigate]);
+  }, [JSON.stringify(problemIds), navigate]);
 
   const handleProductSelect = (mapping: ProductMapping) => {
     setSelectedMapping(mapping);
@@ -91,21 +167,24 @@ const ProductRecommendation = () => {
     if (!selectedMapping) return;
 
     try {
-      await supabase.from('analytics').insert({
+      const inserts = (problems || []).map(p => ({
         crop_id: crop?.id ?? null,
-        problem_id: problemId,
+        problem_id: p.id,
         product_id: selectedMapping.products.id, 
         acres: Number(acres),
         language,
-      });
+      }));
+      await supabase.from('analytics').insert(inserts);
     } catch {
       // ignore analytics error
     }
 
+    const selectedProblems = (selectedMapping as any).coveredProblems || problems || [];
+
     navigate('/treatment-plan', {
       state: {
         crop,
-        problem,
+        problems: selectedProblems,
         product: selectedMapping,
         acres: Number(acres),
       },
@@ -139,7 +218,9 @@ const ProductRecommendation = () => {
               {t('crop')}: <span className="text-white uppercase">{getCropName(crop)}</span>
             </p>
             <p className="text-2xl text-[#4ADE80] font-black drop-shadow-md">
-              {t('problem')}: <span className="text-white uppercase">{getProblemTitle(problem)}</span>
+              {t('problem')}: <span className="text-white uppercase">
+                {problems?.map(p => getProblemTitle(p)).join(', ')}
+              </span>
             </p>
             {stage && (
               <p className="text-lg text-white font-bold italic bg-white/10 px-4 py-1 rounded-full">
@@ -154,7 +235,9 @@ const ProductRecommendation = () => {
             {t('recommendedProducts')}
           </h1>
           <p className="text-lg md:text-xl text-white/90 max-w-2xl mx-auto">
-            Choose the best solution for your crop's health
+            {combinationFound || problemIds.length <= 1 
+              ? "Choose the best solution for your crop's health" 
+              : "No single product covers all selected problems. Showing best individual solutions below."}
           </p>
         </div>
 
@@ -194,9 +277,19 @@ const ProductRecommendation = () => {
                   </div>
 
                     <div className="p-8 md:p-10 flex-1 flex flex-col">
-                    <h3 className="text-4xl md:text-5xl font-display font-black text-white mb-8 leading-[1.1] drop-shadow-md">
+                    <h3 className="text-4xl md:text-5xl font-display font-black text-white mb-6 leading-[1.1] drop-shadow-md">
                       {product.name}
                     </h3>
+
+                    {mapping.coveredProblems && (
+                      <div className="flex flex-wrap gap-2 mb-8">
+                        {mapping.coveredProblems.map(p => (
+                          <span key={p.id} className="bg-white/10 text-[#4ADE80] text-[10px] font-black px-3 py-1 rounded-full uppercase border border-[#4ADE80]/30">
+                            Solves: {language === 'te' ? p.title_te : language === 'hi' ? p.title_hi : p.title_en}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="space-y-6 mb-10 text-white">
                       <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl border border-white/10">

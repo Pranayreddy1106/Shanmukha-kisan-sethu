@@ -39,6 +39,7 @@ const ProblemSelection = () => {
   const crop = location.state?.crop as Crop;
   const stage = location.state?.stage as string | undefined;
   const [problems, setProblems] = useState<Problem[]>([]);
+  const [selectedProblems, setSelectedProblems] = useState<Problem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -89,7 +90,22 @@ const ProblemSelection = () => {
   }, [cropId, stage]);
 
   const handleProblemSelect = (problem: Problem) => {
-    navigate(`/products/${problem.id}`, { state: { crop, problem, stage } });
+    setSelectedProblems(prev => {
+      const isSelected = prev.some(p => p.id === problem.id);
+      if (isSelected) {
+        return prev.filter(p => p.id !== problem.id);
+      } else {
+        return [...prev, problem];
+      }
+    });
+  };
+
+  const handleProceed = () => {
+    if (selectedProblems.length === 0) {
+      toast.error('Please select at least one problem');
+      return;
+    }
+    navigate(`/products`, { state: { crop, problems: selectedProblems, stage } });
   };
 
   const getProblemTitle = (problem: Problem) => {
@@ -151,35 +167,58 @@ const ProblemSelection = () => {
             <Button onClick={() => navigate(-1)} className="bg-[#4ADE80] text-[#1B4332] h-16 px-10 rounded-2xl text-xl font-black">{t('goBack')}</Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 md:gap-12 max-w-7xl mx-auto">
-            {problems.map((problem) => (
-              <Card
-                key={problem.id}
-                className="group relative overflow-hidden rounded-[3rem] border-2 border-[#4ADE80]/20 bg-[#1B4332] hover:bg-[#2D5A47] transition-all duration-500 shadow-2xl cursor-pointer animate-fade-in"
-                onClick={() => handleProblemSelect(problem)}
-              >
-                <div className="aspect-[3/2] w-full overflow-hidden relative">
-                  <img
-                    src={problem.image_url || getProblemImage(problem)}
-                    alt={problem.title_en}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-transparent group-hover:from-black/100 transition-all duration-500"></div>
-                </div>
-
-                <div className="p-8 md:p-10 text-center">
-                  <h3 className="text-3xl md:text-5xl font-display font-black text-white mb-4 tracking-tight leading-tight">
-                    {language === 'te' ? problem.title_te : language === 'hi' ? problem.title_hi : problem.title_en}
-                  </h3>
-                  <p className="text-xl text-[#4ADE80] font-bold line-clamp-3 leading-relaxed mb-6">
-                    {problem.description || (language === 'te' ? 'సమస్య వివరణ' : language === 'hi' ? 'समस्या का विवरण' : 'Identifying details...')}
-                  </p>
-                  <div className="inline-flex items-center gap-2 p-1 px-4 rounded-full bg-[#4ADE80] text-[#1B4332] font-black text-sm uppercase tracking-widest group-hover:bg-white transition-colors">
-                    Detect Issue
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 md:gap-12 max-w-7xl mx-auto pb-24">
+            {problems.map((problem) => {
+              const isSelected = selectedProblems.some(p => p.id === problem.id);
+              return (
+                <Card
+                  key={problem.id}
+                  className={`group relative overflow-hidden rounded-[3rem] border-4 transition-all duration-500 shadow-2xl cursor-pointer animate-fade-in ${
+                    isSelected ? 'border-[#4ADE80] bg-[#2D5A47] scale-[1.02]' : 'border-[#4ADE80]/20 bg-[#1B4332] hover:bg-[#2D5A47]'
+                  }`}
+                  onClick={() => handleProblemSelect(problem)}
+                >
+                  <div className="aspect-[3/2] w-full overflow-hidden relative">
+                    <img
+                      src={problem.image_url || getProblemImage(problem)}
+                      alt={problem.title_en}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-transparent group-hover:from-black/100 transition-all duration-500"></div>
+                    {isSelected && (
+                      <div className="absolute top-6 right-6 bg-[#4ADE80] text-[#1B4332] p-3 rounded-full shadow-xl animate-bounce">
+                        <Bug className="h-6 w-6" />
+                      </div>
+                    )}
                   </div>
-                </div>
-              </Card>
-            ))}
+
+                  <div className="p-8 md:p-10 text-center">
+                    <h3 className="text-3xl md:text-5xl font-display font-black text-white mb-4 tracking-tight leading-tight">
+                      {language === 'te' ? problem.title_te : language === 'hi' ? problem.title_hi : problem.title_en}
+                    </h3>
+                    <p className="text-xl text-[#4ADE80] font-bold line-clamp-3 leading-relaxed mb-6">
+                      {problem.description || (language === 'te' ? 'సమస్య వివరణ' : language === 'hi' ? 'समस्या का विवरण' : 'Identifying details...')}
+                    </p>
+                    <div className={`inline-flex items-center gap-2 p-1 px-4 rounded-full font-black text-sm uppercase tracking-widest transition-colors ${
+                      isSelected ? 'bg-white text-[#1B4332]' : 'bg-[#4ADE80] text-[#1B4332] group-hover:bg-white'
+                    }`}>
+                      {isSelected ? 'Selected' : 'Detect Issue'}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedProblems.length > 0 && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 animate-bounce-in">
+            <Button
+              onClick={handleProceed}
+              className="bg-[#4ADE80] text-[#1B4332] hover:bg-white h-20 px-12 rounded-[2rem] text-3xl font-black shadow-[0_0_50px_rgba(74,222,128,0.5)] border-4 border-white transition-all transform hover:scale-110 active:scale-95"
+            >
+              Recommend Products ({selectedProblems.length})
+            </Button>
           </div>
         )}
       </div>

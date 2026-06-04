@@ -53,6 +53,12 @@ const ProductRecommendation = () => {
             products (
               id,
               name,
+              name_te,
+              name_hi,
+              description_te,
+              description_hi,
+              features_te,
+              features_hi,
               image_url,
               scientific_formula,
               pack_sizes
@@ -197,6 +203,9 @@ const ProductRecommendation = () => {
   const getProblemTitle = (p?: Problem) =>
     !p ? '—' : language === 'te' ? p.title_te : language === 'hi' ? p.title_hi : p.title_en;
 
+  const getProductName = (p?: any) =>
+    !p ? '—' : language === 'te' ? (p.name_te || p.name) : language === 'hi' ? (p.name_hi || p.name) : p.name;
+
   return (
     <div className="min-h-screen bg-products-selection flex flex-col relative text-white">
       <HomeButton />
@@ -260,7 +269,7 @@ const ProductRecommendation = () => {
                     {product.image_url ? (
                       <img
                         src={product.image_url}
-                        alt={product.name}
+                        alt={getProductName(product)}
                         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                       />
                     ) : (
@@ -278,7 +287,7 @@ const ProductRecommendation = () => {
 
                     <div className="p-8 md:p-10 flex-1 flex flex-col">
                     <h3 className="text-4xl md:text-5xl font-display font-black text-white mb-6 leading-[1.1] drop-shadow-md">
-                      {product.name}
+                      {getProductName(product)}
                     </h3>
 
                     {mapping.coveredProblems && (
@@ -347,7 +356,7 @@ const ProductRecommendation = () => {
               {t('enterAcres')}
             </DialogTitle>
             <DialogDescription className="text-lg text-[#405D4E] mt-2">
-              Calculate precisely for: <span className="font-bold text-[#1B4332]">{selectedMapping?.products.name}</span>
+              Calculate precisely for: <span className="font-bold text-[#1B4332]">{getProductName(selectedMapping?.products)}</span>
             </DialogDescription>
           </DialogHeader>
 

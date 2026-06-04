@@ -107,6 +107,9 @@ const TreatmentPlan = () => {
   const getProblemTitle = (p: any) =>
     language === 'te' ? p.title_te : language === 'hi' ? p.title_hi : p.title_en;
 
+  const getProductName = (p?: any) =>
+    !p ? '—' : language === 'te' ? (p.name_te || p.name) : language === 'hi' ? (p.name_hi || p.name) : p.name;
+
   const totalDosageMin = (mappingInfo.dosage_min || 0) * acres;
   const totalDosageMax = (mappingInfo.dosage_max || 0) * acres;
 
@@ -206,7 +209,7 @@ const TreatmentPlan = () => {
 
   const handleShareWhatsApp = () => {
     const problemsText = problems.map(p => getProblemTitle(p)).join(', ');
-    const msg = `Treatment Plan\nCrop: ${getCropName(crop)}\nProblems: ${problemsText}\nProduct: ${productInfo.name}\nAcres: ${acres}\nDosage: ${mappingInfo.dosage_recommendation}`;
+    const msg = `Treatment Plan\nCrop: ${getCropName(crop)}\nProblems: ${problemsText}\nProduct: ${getProductName(productInfo)}\nAcres: ${acres}\nDosage: ${mappingInfo.dosage_recommendation}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -232,13 +235,13 @@ const TreatmentPlan = () => {
           <div className="flex-shrink-0 w-full lg:w-1/3 flex flex-col items-center lg:items-start gap-6">
             <div className="w-64 h-64 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-[#4ADE80]/30 bg-black/20">
               {productInfo.image_url ? (
-                <img src={productInfo.image_url} alt={productInfo.name} className="w-full h-full object-cover" />
+                <img src={productInfo.image_url} alt={getProductName(productInfo)} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center"><Package className="w-24 h-24 text-[#4ADE80]" /></div>
               )}
             </div>
             <div className="text-center lg:text-left">
-              <h2 className="text-4xl font-display font-bold text-[#4ADE80] mb-2">{productInfo.name}</h2>
+              <h2 className="text-4xl font-display font-bold text-[#4ADE80] mb-2">{getProductName(productInfo)}</h2>
               {productInfo.scientific_formula && (
                 <p className="text-lg text-white/80 italic font-medium">{productInfo.scientific_formula}</p>
               )}
@@ -260,7 +263,7 @@ const TreatmentPlan = () => {
                 <p className="text-2xl font-black font-display text-white">{mappingInfo.dosage_recommendation}</p>
               </div>
               <div className="p-6 bg-black/40 rounded-2xl border border-white/10 shadow-inner">
-                <p className="text-xs uppercase text-[#4ADE80] font-black tracking-widest mb-2">Acres</p>
+                <p className="text-xs uppercase text-[#4ADE80] font-black tracking-widest mb-2">{t('acres')}</p>
                 <p className="text-2xl font-black font-display text-white">{acres}</p>
               </div>
             </div>
@@ -269,7 +272,7 @@ const TreatmentPlan = () => {
               <div className="absolute top-0 right-0 p-6 opacity-10">
                 <Calculator className="w-24 h-24 text-white" />
               </div>
-              <h3 className="font-black text-[#4ADE80] mb-3 text-2xl tracking-widest uppercase italic">Total Recommended Quantity</h3>
+              <h3 className="font-black text-[#4ADE80] mb-3 text-2xl tracking-widest uppercase italic">{t('totalDosage')}</h3>
               <p className="text-6xl md:text-8xl font-black font-display text-white drop-shadow-lg">
                 {totalDosageMin === totalDosageMax ? `${totalDosageMin.toFixed(2)}` : `${totalDosageMin.toFixed(2)} – ${totalDosageMax.toFixed(2)}`}
                 <span className="text-3xl ml-3 text-[#4ADE80] uppercase opacity-80">{mappingInfo.dosage_unit}</span>
@@ -299,15 +302,15 @@ const TreatmentPlan = () => {
               <div className="bg-[#4ADE80]/10 p-2 rounded-xl">
                 <FileCheck className="h-8 w-8 text-[#2E7D32]" />
               </div>
-              Farmer Details
+              {t('farmerDetails')}
             </DialogTitle>
             <DialogDescription className="text-lg text-[#405D4E] mt-2">
-              For official records and PDF header
+              {t('farmerDetailsDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="name" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">Name</Label>
+              <Label htmlFor="name" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">{t('farmerNameLabel')}</Label>
               <Input
                 id="name"
                 placeholder="Rama Rao"
@@ -317,7 +320,7 @@ const TreatmentPlan = () => {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="mobile" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">Mobile Number</Label>
+              <Label htmlFor="mobile" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">{t('farmerMobileLabel')}</Label>
               <Input
                 id="mobile"
                 placeholder="9876543210"
@@ -329,7 +332,7 @@ const TreatmentPlan = () => {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="location" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">Location</Label>
+              <Label htmlFor="location" className="text-sm font-bold text-[#1B4332] uppercase tracking-widest pl-2">{t('farmerLocationLabel')}</Label>
               <Input
                 id="location"
                 placeholder="Village / Town"
@@ -341,11 +344,11 @@ const TreatmentPlan = () => {
           </div>
           <DialogFooter className="gap-2 sm:gap-4 mt-8">
             <Button variant="ghost" onClick={() => setShowPdfDialog(false)} className="h-14 rounded-2xl w-full sm:w-auto text-[#405D4E] font-bold">
-              Cancel
+              {t('cancel')}
             </Button>
             <Button onClick={handleConfirmGenerate} disabled={isGenerating} className="h-14 rounded-2xl w-full sm:w-auto font-bold bg-[#1B4332] hover:bg-[#2E7D32] text-white px-10 shadow-xl shadow-[#1B4332]/20 transition-all transform active:scale-95">
               {isGenerating ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Download className="mr-2 h-5 w-5" />}
-              Generate PDF
+              {t('generatePDF')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -447,7 +450,7 @@ const TreatmentPlan = () => {
               )}
             </div>
             <span className="text-xs font-bold text-[#405D4E] uppercase tracking-wider">{t('product')}</span>
-            <span className="text-sm font-bold text-[#1B4332] text-center mt-1">{productInfo.name}</span>
+            <span className="text-sm font-bold text-[#1B4332] text-center mt-1">{getProductName(productInfo)}</span>
           </div>
         </div>
 
@@ -470,7 +473,7 @@ const TreatmentPlan = () => {
             </div>
             <div className="grid grid-cols-3 px-6 py-3">
               <span className="text-xs font-semibold text-[#405D4E]">{t('product')}</span>
-              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{productInfo.name}</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{getProductName(productInfo)}</span>
             </div>
             {productInfo.scientific_formula && (
               <div className="grid grid-cols-3 px-6 py-3">

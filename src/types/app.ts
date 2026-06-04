@@ -17,7 +17,6 @@ export interface Problem {
   description?: string | null;
 }
 
-// UPDATED: Represents the new clean 'products' table
 export interface Product {
   id: string;
   name: string;
@@ -26,6 +25,12 @@ export interface Product {
   image_url?: string | null;
   pack_sizes: string[] | null;
   features?: string[] | null;
+  name_te?: string | null;
+  name_hi?: string | null;
+  description_te?: string | null;
+  description_hi?: string | null;
+  features_te?: string[] | null;
+  features_hi?: string[] | null;
 }
 
 // NEW: Represents the 'product_mappings' table

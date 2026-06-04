@@ -375,7 +375,7 @@ const TreatmentPlan = () => {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-[#1B4332]">Shanmukha Agritech</h1>
               <p className="text-xs text-[#405D4E] uppercase tracking-wider font-semibold">
-                Treatment Plan / చికిత్స ప్రణాళిక
+                {t('treatmentPlan')}
               </p>
             </div>
           </div>
@@ -388,15 +388,21 @@ const TreatmentPlan = () => {
         {/* Farmer Details */}
         <div className="bg-[#E8F5E9]/50 rounded-2xl p-6 mb-6 border border-[#4ADE80]/20 grid grid-cols-3 gap-4">
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Farmer Name / రైతు పేరు</span>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">
+              {language === 'te' ? 'రైతు పేరు' : language === 'hi' ? 'किसान का नाम' : 'Farmer Name'}
+            </span>
             <span className="text-sm font-bold text-[#1B4332]">{farmerName || '-'}</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Mobile Number / మొబైల్</span>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">
+              {language === 'te' ? 'మొబైల్' : language === 'hi' ? 'मोबाइल नंबर' : 'Mobile Number'}
+            </span>
             <span className="text-sm font-bold text-[#1B4332]">{farmerMobile || '-'}</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Location / నివాసం</span>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">
+              {language === 'te' ? 'నివాసం' : language === 'hi' ? 'स्थान' : 'Location'}
+            </span>
             <span className="text-sm font-bold text-[#1B4332]">{farmerLocation || '-'}</span>
           </div>
         </div>
@@ -448,38 +454,40 @@ const TreatmentPlan = () => {
         {/* Dosage & Recommendation Details Table */}
         <div className="flex-1 bg-white rounded-2xl border border-[#4ADE80]/20 overflow-hidden mb-6 shadow-sm flex flex-col">
           <div className="bg-[#1B4332] text-white px-6 py-4 flex justify-between items-center">
-            <h3 className="font-bold text-base">Recommendation Details / సిఫార్సు వివరాలు</h3>
+            <h3 className="font-bold text-base">
+              {language === 'te' ? 'సిఫార్సు వివరాలు' : language === 'hi' ? 'सिफारिश विवरण' : 'Recommendation Details'}
+            </h3>
             <span className="text-[10px] font-semibold px-3 py-1 bg-[#4ADE80]/20 text-[#4ADE80] rounded-full uppercase tracking-wider">Certified</span>
           </div>
           <div className="divide-y divide-[#4ADE80]/10 flex-1 flex flex-col justify-around">
             <div className="grid grid-cols-3 px-6 py-3">
-              <span className="text-xs font-semibold text-[#405D4E]">{t('crop')} / పంట</span>
+              <span className="text-xs font-semibold text-[#405D4E]">{t('crop')}</span>
               <span className="col-span-2 text-xs font-bold text-[#1B4332]">{getCropName(crop)}</span>
             </div>
             <div className="grid grid-cols-3 px-6 py-3">
-              <span className="text-xs font-semibold text-[#405D4E]">{t('problem')} / సమస్య</span>
+              <span className="text-xs font-semibold text-[#405D4E]">{t('problem')}</span>
               <span className="col-span-2 text-xs font-bold text-[#1B4332]">{problems.map(p => getProblemTitle(p)).join(', ')}</span>
             </div>
             <div className="grid grid-cols-3 px-6 py-3">
-              <span className="text-xs font-semibold text-[#405D4E]">{t('product')} / ఉత్పత్తి</span>
+              <span className="text-xs font-semibold text-[#405D4E]">{t('product')}</span>
               <span className="col-span-2 text-xs font-bold text-[#1B4332]">{productInfo.name}</span>
             </div>
             {productInfo.scientific_formula && (
               <div className="grid grid-cols-3 px-6 py-3">
-                <span className="text-xs font-semibold text-[#405D4E]">{t('scientificFormula')} / శాస్త్రీయ నామం</span>
+                <span className="text-xs font-semibold text-[#405D4E]">{t('scientificFormula')}</span>
                 <span className="col-span-2 text-xs font-bold text-[#1B4332] italic">{productInfo.scientific_formula}</span>
               </div>
             )}
             <div className="grid grid-cols-3 px-6 py-3">
-              <span className="text-xs font-semibold text-[#405D4E]">{t('acres')} / ఎకరాలు</span>
+              <span className="text-xs font-semibold text-[#405D4E]">{t('acres')}</span>
               <span className="col-span-2 text-xs font-bold text-[#1B4332]">{acres}</span>
             </div>
             <div className="grid grid-cols-3 px-6 py-3">
-              <span className="text-xs font-semibold text-[#405D4E]">{t('dosagePerAcre')} / ఎకరానికి మోతాదు</span>
+              <span className="text-xs font-semibold text-[#405D4E]">{t('dosagePerAcre')}</span>
               <span className="col-span-2 text-xs font-bold text-[#1B4332]">{mappingInfo.dosage_recommendation}</span>
             </div>
             <div className="grid grid-cols-3 px-6 py-3 bg-[#E8F5E9]/20">
-              <span className="text-xs font-bold text-[#1B4332]">{t('totalDosage')} / మొత్తం అవసరం</span>
+              <span className="text-xs font-bold text-[#1B4332]">{t('totalDosage')}</span>
               <span className="col-span-2 text-sm font-black text-[#2E7D32]">
                 {totalDosageMin === totalDosageMax ? `${totalDosageMin.toFixed(2)}` : `${totalDosageMin.toFixed(2)} – ${totalDosageMax.toFixed(2)}`} {mappingInfo.dosage_unit}
               </span>
@@ -489,7 +497,9 @@ const TreatmentPlan = () => {
 
         {/* Footer */}
         <div className="border-t border-[#4ADE80]/30 pt-4 text-center text-[10px] text-[#405D4E] flex flex-col gap-1">
-          <p className="font-bold">Powered by Shanmukha Agritech / షణ్ముఖ అగ్రిటెక్</p>
+          <p className="font-bold">
+            {language === 'te' ? 'షణ్ముఖ అగ్రిటెక్ ద్వారా ఆధారితం' : language === 'hi' ? 'शनमुख एग्रीटेक द्वारा संचालित' : 'Powered by Shanmukha Agritech'}
+          </p>
           <p>Address: Shanmukha Agro Industries, Telangana</p>
           <p className="text-[8px] text-[#405D4E]/60 mt-1">This treatment plan is a system generated recommendation based on diagnosed symptoms.</p>
         </div>

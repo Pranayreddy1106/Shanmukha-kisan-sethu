@@ -16,6 +16,8 @@ import TreatmentPlan from "./pages/TreatmentPlan";
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import ManagerDashboard from "./pages/ManagerDashboard";
+import ScanResults from "./pages/ScanResults";
+import CropScanner from "./pages/CropScanner";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +40,8 @@ const App = () => {
                 <Route path="/problems/:cropId" element={<ProblemSelection />} />
                 <Route path="/products" element={<ProductRecommendation />} />
                 <Route path="/treatment-plan" element={<TreatmentPlan />} />
+                <Route path="/scan" element={<CropScanner />} />
+                <Route path="/scan-results" element={<ScanResults />} />
                 <Route path="/about" element={<About />} />
                 <Route
                   path="/admin/dashboard"

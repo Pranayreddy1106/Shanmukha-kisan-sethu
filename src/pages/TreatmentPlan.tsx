@@ -8,7 +8,8 @@ import { Home, Download, Share2, FileCheck, Package, Loader2, Calculator } from 
 import { TreatmentData } from '@/types/app';
 import jsPDF from 'jspdf';
 import { toast } from 'sonner';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import { HomeButton } from '@/components/HomeButton';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -83,6 +84,12 @@ const TreatmentPlan = () => {
   const [farmerLocation, setFarmerLocation] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
 
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
+  const [cropBase64, setCropBase64] = useState<string | null>(null);
+  const [problemBase64, setProblemBase64] = useState<string | null>(null);
+  const [productBase64, setProductBase64] = useState<string | null>(null);
+
   useEffect(() => {
     if (!location.state) navigate('/');
   }, [location.state, navigate]);
@@ -143,142 +150,47 @@ const TreatmentPlan = () => {
 
       if (dbError) console.error('DB Log Error:', dbError);
 
-      const doc = new jsPDF({ compress: true });
-      const cleanTelugu = teluguFont.replace(/[\n\r\s]/g, '');
-      const cleanHindi = hindiFont.replace(/[\n\r\s]/g, '');
+      // Set base64 states for the hidden PDF template rendering
+      setLogoBase64(logoData?.base64 || null);
+      setCropBase64(cropImg?.base64 || null);
+      setProblemBase64(problemImg?.base64 || null);
+      setProductBase64(productImg?.base64 || null);
 
-      doc.addFileToVFS('NotoSansTelugu.ttf', cleanTelugu);
-      doc.addFont('NotoSansTelugu.ttf', 'NotoSansTelugu', 'normal');
-      doc.addFileToVFS('NotoSansHindi.ttf', cleanHindi);
-      doc.addFont('NotoSansHindi.ttf', 'NotoSansHindi', 'normal');
+      // Wait a moment for React to flush the updates to the DOM
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-      const setFontForText = (text: string, preferredStyle: 'normal' | 'bold' = 'normal') => {
-        if (isAscii(text)) {
-          doc.setFont('Helvetica', preferredStyle);
-        } else {
-          if (language === 'te') doc.setFont('NotoSansTelugu', 'normal');
-          else if (language === 'hi') doc.setFont('NotoSansHindi', 'normal');
-          else doc.setFont('Helvetica', preferredStyle);
-        }
-      };
-
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 15;
-      
-      if (logoData) {
-        doc.addImage(logoData.base64, logoData.format, margin, 10, 25, 25, undefined, 'FAST');
+      const element = pdfTemplateRef.current;
+      if (!element) {
+        throw new Error('PDF template element not found');
       }
-      doc.setFontSize(18);
-      doc.setTextColor(40);
-      doc.setFont('Helvetica', 'bold');
-      doc.text('Shanmukha Agritech – Treatment Plan', pageWidth / 2, 25, { align: 'center' });
 
-      let y = 45;
-      doc.setFontSize(10);
-      doc.setTextColor(60);
-      
-      const nameFull = `Name: ${farmerName}`;
-      const mobileFull = `Mobile: ${farmerMobile}`;
-      
-      setFontForText(nameFull, 'normal');
-      const nameLines = doc.splitTextToSize(nameFull, pageWidth / 2 - margin);
-      doc.text(nameLines, margin, y);
-      
-      setFontForText(mobileFull, 'normal');
-      doc.text(mobileFull, pageWidth - margin, y, { align: 'right' });
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution crisp text rendering
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#FDFBF7'
+      });
 
-      y += (nameLines.length * 6) + 4;
+      const imgData = canvas.toDataURL('image/png');
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
 
-      const locationFull = `Location: ${farmerLocation}`;
-      setFontForText(locationFull, 'normal');
-      const locationLines = doc.splitTextToSize(locationFull, pageWidth - (margin * 2));
-      doc.text(locationLines, margin, y);
-      
-      y += (locationLines.length * 6) + 4;
-      
-      doc.setDrawColor(200);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 10; 
-
-      const IMAGE_HEIGHT = 45; 
-      const gap = 5;
-      const slotWidth = (pageWidth - (margin * 2) - (gap * 2)) / 3;
-      
-      const cropX = margin;
-      const problemX = margin + slotWidth + gap;
-      const productX = margin + (slotWidth + gap) * 2;
-
-      const drawImageInSlot = (img: any, xPos: number, label: string) => {
-        if (!img) return;
-
-        const ratio = img.width / img.height;
-        let drawHeight = IMAGE_HEIGHT;
-        let drawWidth = drawHeight * ratio;
-
-        if (drawWidth > slotWidth) {
-          drawWidth = slotWidth;
-          drawHeight = drawWidth / ratio;
-        }
-
-        const xOffset = xPos + (slotWidth - drawWidth) / 2;
-        doc.addImage(img.base64, img.format, xOffset, y, drawWidth, drawHeight, undefined, 'FAST');
-        doc.setFontSize(9);
-        doc.setTextColor(100);
-        setFontForText(label, 'normal');
-        doc.text(label, xPos + slotWidth / 2, y + IMAGE_HEIGHT + 5, { align: 'center' });
-      };
-
-      drawImageInSlot(cropImg, cropX, t('crop'));
-      drawImageInSlot(problemImg, problemX, t('problem'));
-      drawImageInSlot(productImg, productX, t('product'));
-
-      y += IMAGE_HEIGHT + 15; 
-      doc.setDrawColor(220);
-      doc.line(margin, y - 5, pageWidth - margin, y - 5);
-      doc.setFontSize(11);
-      doc.setTextColor(0);
-
-      const renderRow = (label: string, value: string) => {
-        if (y > pageHeight - 30) {
-          doc.addPage();
-          y = 20;
-        }
-        setFontForText(label, 'normal');
-        doc.text(label + ':', margin, y);
-        const valueX = margin + 45; 
-        const maxValWidth = pageWidth - margin - valueX;
-        setFontForText(value, 'bold');
-        const wrappedText = doc.splitTextToSize(String(value), maxValWidth);
-        doc.text(wrappedText, valueX, y);
-        y += (wrappedText.length * 6) + 4; 
-      };
-
-      renderRow(t('crop'), getCropName(crop));
-      renderRow(t('problem'), problems.map(p => getProblemTitle(p)).join(', '));
-      renderRow(t('product'), productInfo.name);
-      
-      if (productInfo.scientific_formula) {
-        renderRow('Scientific Formula', productInfo.scientific_formula);
-      }
-      y += 2;
-      renderRow('Acres', String(acres));
-      renderRow(t('dosagePerAcre'), mappingInfo.dosage_recommendation);
-
-      const totalReq = totalDosageMin === totalDosageMax
-        ? `${totalDosageMin.toFixed(2)}`
-        : `${totalDosageMin.toFixed(2)} – ${totalDosageMax.toFixed(2)}`;
-      
-      renderRow('Total Required', `${totalReq} ${mappingInfo.dosage_unit}`);
-
-      doc.setFontSize(9);
-      doc.setTextColor(150);
-      doc.setFont('Helvetica', 'normal');
-      doc.text('Powered by Shanmukha Agritech', pageWidth / 2, pageHeight - 15, { align: 'center' });
-      doc.text('Address: Shanmukha Agro Industries, Telangana', pageWidth / 2, pageHeight - 10, { align: 'center' });
+      const pdfWidth = doc.internal.pageSize.getWidth();
+      const pdfHeight = doc.internal.pageSize.getHeight();
+      doc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
 
       doc.save(`treatment-${farmerName.replace(/\s+/g, '-')}-${Date.now()}.pdf`);
       toast.success('PDF generated and logged!');
+
+      // Reset base64 states
+      setLogoBase64(null);
+      setCropBase64(null);
+      setProblemBase64(null);
+      setProductBase64(null);
       
       setShowPdfDialog(false);
       setFarmerName('');
@@ -438,6 +350,150 @@ const TreatmentPlan = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Off-screen PDF Template for html2canvas generation */}
+      <div
+        ref={pdfTemplateRef}
+        className="bg-[#FDFBF7] text-[#1B4332] p-10 flex flex-col justify-between"
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: '-9999px',
+          width: '794px', // A4 width at 96 DPI
+          minHeight: '1123px', // A4 height at 96 DPI
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b-2 border-[#4ADE80]/30 pb-6 mb-6">
+          <div className="flex items-center gap-4">
+            {logoBase64 ? (
+              <img src={logoBase64} alt="Logo" className="w-16 h-16 object-contain" />
+            ) : (
+              <div className="w-16 h-16 bg-[#4ADE80]/20 rounded-full" />
+            )}
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-[#1B4332]">Shanmukha Agritech</h1>
+              <p className="text-xs text-[#405D4E] uppercase tracking-wider font-semibold">
+                Treatment Plan / చికిత్స ప్రణాళిక
+              </p>
+            </div>
+          </div>
+          <div className="text-right text-xs text-[#405D4E]">
+            <p className="font-bold">Date: {new Date().toLocaleDateString()}</p>
+            <p>ID: {Date.now().toString().slice(-6)}</p>
+          </div>
+        </div>
+
+        {/* Farmer Details */}
+        <div className="bg-[#E8F5E9]/50 rounded-2xl p-6 mb-6 border border-[#4ADE80]/20 grid grid-cols-3 gap-4">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Farmer Name / రైతు పేరు</span>
+            <span className="text-sm font-bold text-[#1B4332]">{farmerName || '-'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Mobile Number / మొబైల్</span>
+            <span className="text-sm font-bold text-[#1B4332]">{farmerMobile || '-'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-[#405D4E] block tracking-wider">Location / నివాసం</span>
+            <span className="text-sm font-bold text-[#1B4332]">{farmerLocation || '-'}</span>
+          </div>
+        </div>
+
+        {/* Main Images Grid */}
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          {/* Crop */}
+          <div className="bg-white rounded-2xl p-4 border border-[#4ADE80]/10 flex flex-col items-center shadow-sm">
+            <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-black/5 flex items-center justify-center">
+              {cropBase64 ? (
+                <img src={cropBase64} alt="Crop" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs text-[#405D4E]">No image</span>
+              )}
+            </div>
+            <span className="text-xs font-bold text-[#405D4E] uppercase tracking-wider">{t('crop')}</span>
+            <span className="text-sm font-bold text-[#1B4332] text-center mt-1">{getCropName(crop)}</span>
+          </div>
+
+          {/* Problem */}
+          <div className="bg-white rounded-2xl p-4 border border-[#4ADE80]/10 flex flex-col items-center shadow-sm">
+            <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-black/5 flex items-center justify-center">
+              {problemBase64 ? (
+                <img src={problemBase64} alt="Problem" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs text-[#405D4E]">No image</span>
+              )}
+            </div>
+            <span className="text-xs font-bold text-[#405D4E] uppercase tracking-wider">{t('problem')}</span>
+            <span className="text-sm font-bold text-[#1B4332] text-center mt-1">
+              {problems.map(p => getProblemTitle(p)).join(', ')}
+            </span>
+          </div>
+
+          {/* Product */}
+          <div className="bg-white rounded-2xl p-4 border border-[#4ADE80]/10 flex flex-col items-center shadow-sm">
+            <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-black/5 flex items-center justify-center">
+              {productBase64 ? (
+                <img src={productBase64} alt="Product" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs text-[#405D4E]">No image</span>
+              )}
+            </div>
+            <span className="text-xs font-bold text-[#405D4E] uppercase tracking-wider">{t('product')}</span>
+            <span className="text-sm font-bold text-[#1B4332] text-center mt-1">{productInfo.name}</span>
+          </div>
+        </div>
+
+        {/* Dosage & Recommendation Details Table */}
+        <div className="flex-1 bg-white rounded-2xl border border-[#4ADE80]/20 overflow-hidden mb-6 shadow-sm flex flex-col">
+          <div className="bg-[#1B4332] text-white px-6 py-4 flex justify-between items-center">
+            <h3 className="font-bold text-base">Recommendation Details / సిఫార్సు వివరాలు</h3>
+            <span className="text-[10px] font-semibold px-3 py-1 bg-[#4ADE80]/20 text-[#4ADE80] rounded-full uppercase tracking-wider">Certified</span>
+          </div>
+          <div className="divide-y divide-[#4ADE80]/10 flex-1 flex flex-col justify-around">
+            <div className="grid grid-cols-3 px-6 py-3">
+              <span className="text-xs font-semibold text-[#405D4E]">{t('crop')} / పంట</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{getCropName(crop)}</span>
+            </div>
+            <div className="grid grid-cols-3 px-6 py-3">
+              <span className="text-xs font-semibold text-[#405D4E]">{t('problem')} / సమస్య</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{problems.map(p => getProblemTitle(p)).join(', ')}</span>
+            </div>
+            <div className="grid grid-cols-3 px-6 py-3">
+              <span className="text-xs font-semibold text-[#405D4E]">{t('product')} / ఉత్పత్తి</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{productInfo.name}</span>
+            </div>
+            {productInfo.scientific_formula && (
+              <div className="grid grid-cols-3 px-6 py-3">
+                <span className="text-xs font-semibold text-[#405D4E]">{t('scientificFormula')} / శాస్త్రీయ నామం</span>
+                <span className="col-span-2 text-xs font-bold text-[#1B4332] italic">{productInfo.scientific_formula}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-3 px-6 py-3">
+              <span className="text-xs font-semibold text-[#405D4E]">{t('acres')} / ఎకరాలు</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{acres}</span>
+            </div>
+            <div className="grid grid-cols-3 px-6 py-3">
+              <span className="text-xs font-semibold text-[#405D4E]">{t('dosagePerAcre')} / ఎకరానికి మోతాదు</span>
+              <span className="col-span-2 text-xs font-bold text-[#1B4332]">{mappingInfo.dosage_recommendation}</span>
+            </div>
+            <div className="grid grid-cols-3 px-6 py-3 bg-[#E8F5E9]/20">
+              <span className="text-xs font-bold text-[#1B4332]">{t('totalDosage')} / మొత్తం అవసరం</span>
+              <span className="col-span-2 text-sm font-black text-[#2E7D32]">
+                {totalDosageMin === totalDosageMax ? `${totalDosageMin.toFixed(2)}` : `${totalDosageMin.toFixed(2)} – ${totalDosageMax.toFixed(2)}`} {mappingInfo.dosage_unit}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-[#4ADE80]/30 pt-4 text-center text-[10px] text-[#405D4E] flex flex-col gap-1">
+          <p className="font-bold">Powered by Shanmukha Agritech / షణ్ముఖ అగ్రిటెక్</p>
+          <p>Address: Shanmukha Agro Industries, Telangana</p>
+          <p className="text-[8px] text-[#405D4E]/60 mt-1">This treatment plan is a system generated recommendation based on diagnosed symptoms.</p>
+        </div>
+      </div>
     </div>
   );
 };

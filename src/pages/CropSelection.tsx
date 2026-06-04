@@ -3,7 +3,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Leaf, Sprout } from 'lucide-react';
+import { ArrowLeft, Leaf, Sprout, Camera, Zap } from 'lucide-react';
 import { Crop } from '@/types/app';
 import { toast } from 'sonner';
 import { HomeButton } from '@/components/HomeButton';
@@ -164,6 +164,47 @@ const CropSelection = () => {
           </div>
         ) : crops.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8 max-w-7xl mx-auto">
+            {/* AI Scanner Card */}
+            <Card
+              className="group relative overflow-hidden rounded-[2.5rem] border-2 border-[#4ADE80] bg-gradient-to-br from-[#1B4332] to-[#0D1F16] hover:border-[#4ADE80] transition-all duration-500 shadow-2xl cursor-pointer animate-fade-in aspect-[4/5] overflow-hidden"
+              onClick={() => navigate('/scan')}
+            >
+              <div className="absolute inset-0">
+                <img
+                  src="https://images.unsplash.com/photo-1628352081506-83c43123ed6d?q=80&w=800&auto=format&fit=crop"
+                  alt="AI Scanner"
+                  className="w-full h-full object-cover opacity-40 transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0D1F16]/95 via-[#0D1F16]/40 to-transparent"></div>
+              </div>
+
+              {/* Glowing Pulse Scan Line */}
+              <div className="absolute inset-x-0 h-0.5 bg-[#4ADE80] opacity-80 shadow-[0_0_15px_#4ADE80,0_0_30px_#4ADE80]" style={{
+                animation: 'scanLine 3s ease-in-out infinite',
+              }} />
+
+              <div className="absolute inset-0 flex flex-col items-center justify-between p-6 md:p-8">
+                {/* Scanner Icon Container */}
+                <div className="mt-8 relative flex items-center justify-center">
+                  <div className="absolute inset-0 bg-[#4ADE80]/30 rounded-full blur-xl scale-125 group-hover:scale-150 transition-all duration-500"></div>
+                  <div className="bg-[#4ADE80]/20 border border-[#4ADE80]/40 p-5 rounded-3xl relative z-10 shadow-lg group-hover:bg-[#4ADE80]/30 transition-colors">
+                    <Camera className="w-10 h-10 text-[#4ADE80]" />
+                  </div>
+                  <Zap className="absolute -top-1 -right-1 w-6 h-6 text-[#F59E0B] fill-[#F59E0B] animate-pulse" />
+                </div>
+
+                <div className="flex flex-col items-center text-center">
+                  <h3 className="text-2xl md:text-3xl font-display font-black text-[#4ADE80] mb-1 tracking-tight drop-shadow-lg flex items-center gap-2">
+                    {t('aiScannerCardTitle')}
+                  </h3>
+                  <p className="text-xs md:text-sm text-white/70 mb-2 leading-snug px-2">
+                    {t('aiScannerCardDesc')}
+                  </p>
+                  <div className="h-1.5 w-16 bg-[#4ADE80] rounded-full transform scale-x-100 transition-transform duration-500 shadow-[0_0_10px_#4ADE80]"></div>
+                </div>
+              </div>
+            </Card>
+
             {crops.map((crop) => (
               <Card
                 key={crop.id}

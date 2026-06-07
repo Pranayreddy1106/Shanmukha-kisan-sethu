@@ -24,3 +24,15 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Environment secrets
+.env
+.env.*
+
+# Catalogue data files (large, not needed in repo)
+*.docx
+satl_catalogue_text.txt
+satl_catalogue_tail.txt
+
+# One-off scripts
+scripts/

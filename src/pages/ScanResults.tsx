@@ -13,6 +13,8 @@ import {
   Check,
   AlertCircle,
   Sparkles,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -21,51 +23,48 @@ import { HomeButton } from '@/components/HomeButton';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Crop, Problem } from '@/types/app';
-
-interface ScanResult {
-  cropName: { en: string; te: string; hi: string };
-  problemName: { en: string; te: string; hi: string };
-  problemType: 'pest' | 'disease' | 'deficiency' | 'healthy';
-  confidence: number;
-  description: { en: string; te: string; hi: string };
-  symptoms: string[];
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  referenceImageKeywords: string[];
-  isDemoFallback?: boolean;
-}
+import {
+  initiateCropTriage,
+  confirmCropTriage,
+  getMockTriagePhase1,
+  getMockTriagePhase2,
+  TriageQuestion,
+  TriagePhase1Result,
+  TriagePhase2Result
+} from '@/services/geminiService';
 
 const severityConfig = {
-  low: { label: 'Low', color: 'bg-green-500', width: 'w-1/4' },
-  medium: { label: 'Medium', color: 'bg-yellow-500', width: 'w-2/4' },
-  high: { label: 'High', color: 'bg-orange-500', width: 'w-3/4' },
-  critical: { label: 'Critical', color: 'bg-red-500', width: 'w-full' },
+  low: { label: { en: 'Low', te: 'తక్కువ', hi: 'कम' }, color: 'bg-green-500', width: 'w-1/4' },
+  medium: { label: { en: 'Medium', te: 'మధ్యస్థం', hi: 'मध्यम' }, color: 'bg-yellow-500', width: 'w-2/4' },
+  high: { label: { en: 'High', te: 'ఎక్కువ', hi: 'उच्च' }, color: 'bg-orange-500', width: 'w-3/4' },
+  critical: { label: { en: 'Critical', te: 'తీవ్రమైనది', hi: 'गंभीर' }, color: 'bg-red-500', width: 'w-full' },
 };
 
 const problemTypeConfig = {
   pest: {
     icon: Bug,
-    label: 'Pest',
+    label: { en: 'Pest', te: 'తెగులు/కీటకం', hi: 'कीट' },
     bg: 'bg-orange-500/20',
     text: 'text-orange-400',
     border: 'border-orange-500/40',
   },
   disease: {
     icon: AlertTriangle,
-    label: 'Disease',
+    label: { en: 'Disease', te: 'వ్యాధి', hi: 'रोग' },
     bg: 'bg-red-500/20',
     text: 'text-red-400',
     border: 'border-red-500/40',
   },
   deficiency: {
     icon: Leaf,
-    label: 'Deficiency',
+    label: { en: 'Deficiency', te: 'పోషకాహార లోపం', hi: 'कमी' },
     bg: 'bg-yellow-500/20',
     text: 'text-yellow-400',
     border: 'border-yellow-500/40',
   },
   healthy: {
     icon: ShieldCheck,
-    label: 'Healthy',
+    label: { en: 'Healthy', te: 'ఆరోగ్యకరమైనది', hi: 'स्वस्थ' },
     bg: 'bg-green-500/20',
     text: 'text-green-400',
     border: 'border-green-500/40',
@@ -77,34 +76,45 @@ const ScanResults = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const scanResult = location.state?.scanResult as ScanResult | undefined;
   const capturedImage = location.state?.capturedImage as string | undefined;
+  const base64Image = location.state?.base64Image as string | undefined;
 
-  // Database lists
+  // DB datasets
   const [allCrops, setAllCrops] = useState<Crop[]>([]);
-  const [cropsLoading, setCropsLoading] = useState(true);
+  const [dbProblems, setDbProblems] = useState<Problem[]>([]);
+  
+  // Wizard States
+  // 'init' -> 'loading_phase1' -> 'triage_questions' -> 'loading_phase2' -> 'results' -> 'error'
+  const [wizardStep, setWizardStep] = useState<'init' | 'loading_phase1' | 'triage_questions' | 'loading_phase2' | 'results' | 'error'>('init');
+  const [loadingText, setLoadingText] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Active Wizard States
-  const [currentCrop, setCurrentCrop] = useState<Crop | null>(null);
-  const [currentProblem, setCurrentProblem] = useState<Problem | null>(null);
-  const [cropProblems, setCropProblems] = useState<Problem[]>([]);
-  const [problemsLoading, setProblemsLoading] = useState(false);
+  // Triage Phase 1 Output
+  const [triage1Result, setTriage1Result] = useState<TriagePhase1Result | null>(null);
+  const [activeCrop, setActiveCrop] = useState<Crop | null>(null);
+  
+  // Questionnaire States
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
+  const [answers, setAnswers] = useState<
+    Array<{ questionId: string; questionText: string; answerLabel: string; answerValue: string }>
+  >([]);
 
-  // Wizard Steps: 1 = Confirm Crop, 2 = Confirm Problem / Diagnosis
-  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
+  // Triage Phase 2 Output
+  const [triage2Result, setTriage2Result] = useState<TriagePhase2Result | null>(null);
+  const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
+  
+  // Interactive Overrides
   const [isChangingCrop, setIsChangingCrop] = useState(false);
-  const [isChangingProblem, setIsChangingProblem] = useState(false);
-
   const [matchingLoading, setMatchingLoading] = useState(false);
 
-  // Guard: redirect if no state
+  // Redirection guard
   useEffect(() => {
-    if (!location.state) {
-      navigate('/home');
+    if (!location.state || !capturedImage || !base64Image) {
+      navigate('/crops');
     }
-  }, [location.state, navigate]);
+  }, [location.state, capturedImage, base64Image, navigate]);
 
-  // 1. Fetch all crops from DB on load
+  // Load database crops on mount
   useEffect(() => {
     const fetchCrops = async () => {
       try {
@@ -112,160 +122,256 @@ const ScanResults = () => {
         if (error) throw error;
         setAllCrops(data || []);
       } catch (err) {
-        console.error('Error fetching crops:', err);
-        toast.error('Failed to load crops data');
-      } finally {
-        setCropsLoading(false);
+        console.error('Failed to load database crops:', err);
+        toast.error('Failed to connect to database crop catalog.');
       }
     };
     fetchCrops();
   }, []);
 
-  // 2. Resolve AI's cropName string to database Crop row
+  // Initiate Phase 1 Triage
   useEffect(() => {
-    if (cropsLoading || !scanResult || allCrops.length === 0 || currentCrop) return;
+    if (allCrops.length === 0 || wizardStep !== 'init' || !base64Image) return;
 
-    const aiCropName = scanResult.cropName.en.toLowerCase();
-    
-    // Attempt match in database crops
-    const matchedCrop = allCrops.find(
-      (c) =>
-        c.name_en.toLowerCase().includes(aiCropName) ||
-        aiCropName.includes(c.name_en.toLowerCase())
-    );
+    const runPhase1 = async () => {
+      setWizardStep('loading_phase1');
+      setLoadingText(
+        language === 'te'
+          ? 'ఆకును స్కాన్ చేస్తోంది మరియు పంటను గుర్తిస్తోంది...'
+          : language === 'hi'
+          ? 'पत्ती को स्कैन किया जा रहा है और फसल की पहचान हो रही है...'
+          : 'Scanning leaf and detecting crop type...'
+      );
 
-    if (matchedCrop) {
-      setCurrentCrop(matchedCrop);
-    } else {
-      // Fallback: Default to first crop so the app doesn't break, but let user correct
-      setCurrentCrop(allCrops[0] || null);
-    }
-  }, [cropsLoading, scanResult, allCrops, currentCrop]);
-
-  // 3. Fetch crop problems and resolve AI's problemName
-  useEffect(() => {
-    if (!currentCrop || !scanResult) return;
-
-    const fetchProblems = async () => {
-      setProblemsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('problems')
-          .select('*')
-          .eq('crop_id', currentCrop.id);
-        if (error) throw error;
+        // Parse format expected by Gemini
+        const cropsList = allCrops.map(c => ({ id: c.id, name_en: c.name_en }));
+        const result = await initiateCropTriage(base64Image, cropsList);
 
-        setCropProblems(data || []);
-
-        // Resolve AI's problemName to database problem
-        const aiProblemName = scanResult.problemName.en.toLowerCase();
+        setTriage1Result(result);
         
-        let matchedProblem = (data || []).find(
-          (p) =>
-            p.title_en.toLowerCase().includes(aiProblemName) ||
-            aiProblemName.includes(p.title_en.toLowerCase())
-        );
+        // Find crop row in DB
+        const cropRow = allCrops.find(c => c.id === result.matchedCropId);
+        setActiveCrop(cropRow || allCrops[0] || null);
 
-        if (!matchedProblem) {
-          // Fuzzy word split match
-          const words = aiProblemName.split(/\s+/).filter((w) => w.length > 2);
-          for (const word of words) {
-            const matched = (data || []).find((p) => p.title_en.toLowerCase().includes(word));
-            if (matched) {
-              matchedProblem = matched;
-              break;
-            }
-          }
+        // Fetch problems for this crop
+        if (cropRow) {
+          const { data: problems } = await supabase
+            .from('problems')
+            .select('*')
+            .eq('crop_id', cropRow.id);
+          setDbProblems(problems || []);
         }
 
-        // Set matched problem, or first problem, or healthy placeholder
-        if (scanResult.problemType === 'healthy') {
-          setCurrentProblem(null);
-        } else {
-          setCurrentProblem(matchedProblem || (data && data[0]) || null);
-        }
+        setWizardStep('triage_questions');
       } catch (err) {
-        console.error('Error fetching crop problems:', err);
-        toast.error('Failed to load crop problems');
-      } finally {
-        setProblemsLoading(false);
+        console.warn('Live Gemini API failed, switching to offline fallback mode:', err);
+        toast.info('API limit reached. Switching to offline diagnosis mode...');
+        try {
+          const result = await getMockTriagePhase1(allCrops);
+          setTriage1Result(result);
+          
+          const cropRow = allCrops.find(c => c.id === result.matchedCropId);
+          setActiveCrop(cropRow || allCrops[0] || null);
+          
+          if (cropRow) {
+            const { data: problems } = await supabase
+              .from('problems')
+              .select('*')
+              .eq('crop_id', cropRow.id);
+            setDbProblems(problems || []);
+          }
+          
+          setWizardStep('triage_questions');
+        } catch (fallbackErr) {
+          setErrorMessage('Offline diagnosis initialization failed.');
+          setWizardStep('error');
+        }
       }
     };
 
-    fetchProblems();
-  }, [currentCrop, scanResult]);
+    runPhase1();
+  }, [allCrops, wizardStep, base64Image, language]);
 
-  if (!scanResult || !capturedImage) {
-    return null;
-  }
+  // Run Phase 2 Triage once answers are completed
+  const handleAnswerSelect = async (optionValue: string, optionLabelObj: { en: string; te: string; hi: string }) => {
+    if (!triage1Result) return;
 
-  const confidencePercent = Math.round(scanResult.confidence);
-  const getConfidenceBg = () => {
-    if (confidencePercent > 80) return 'bg-green-500';
-    if (confidencePercent >= 60) return 'bg-[#F59E0B]';
-    return 'bg-red-500';
+    const currentQuestion = triage1Result.questions[currentQuestionIdx];
+    const newAnswers = [
+      ...answers,
+      {
+        questionId: currentQuestion.id,
+        questionText: currentQuestion.text.en,
+        answerLabel: optionLabelObj.en,
+        answerValue: optionValue,
+      },
+    ];
+    setAnswers(newAnswers);
+
+    const isLastQuestion = currentQuestionIdx === triage1Result.questions.length - 1;
+
+    if (!isLastQuestion) {
+      setCurrentQuestionIdx(prev => prev + 1);
+    } else {
+      // Run final triage analysis
+      setWizardStep('loading_phase2');
+      setLoadingText(
+        language === 'te'
+          ? 'సమాధానాలను విశ్లేషిస్తోంది మరియు సమస్యను నిర్ధారిస్తోంది...'
+          : language === 'hi'
+          ? 'उत्तरों का विश्लेषण किया जा रहा है और समस्या का निदान हो रहा है...'
+          : 'Analyzing answers and confirming final diagnosis...'
+      );
+
+      try {
+        const formattedProblems = dbProblems.map(p => ({
+          id: p.id,
+          title_en: p.title_en,
+          description: p.description,
+        }));
+        const result = await confirmCropTriage(
+          base64Image!,
+          triage1Result.cropName.en,
+          formattedProblems,
+          newAnswers.map(a => ({
+            questionText: a.questionText,
+            answerLabel: a.answerLabel,
+            answerValue: a.answerValue,
+          }))
+        );
+
+        setTriage2Result(result);
+
+        // Find the diagnosed database problem
+        const dbProblemRow = dbProblems.find(p => p.id === result.matchedProblemId);
+        if (result.problemType === 'healthy') {
+          setActiveProblem(null);
+        } else {
+          setActiveProblem(dbProblemRow || dbProblems[0] || null);
+        }
+
+        setWizardStep('results');
+      } catch (err) {
+        console.warn('Live Gemini Phase 2 failed, switching to offline fallback mode:', err);
+        try {
+          const formattedProblems = dbProblems.map(p => ({
+            id: p.id,
+            title_en: p.title_en,
+            title_te: p.title_te,
+            title_hi: p.title_hi,
+            description: p.description,
+            problem_type: p.problem_type
+          }));
+          const result = await getMockTriagePhase2(formattedProblems, newAnswers);
+          setTriage2Result(result);
+          
+          const dbProblemRow = dbProblems.find(p => p.id === result.matchedProblemId);
+          setActiveProblem(result.problemType === 'healthy' ? null : dbProblemRow || null);
+          setWizardStep('results');
+        } catch (fallbackErr) {
+          setErrorMessage('Offline diagnosis confirmation failed.');
+          setWizardStep('error');
+        }
+      }
+    }
   };
 
-  const severity = severityConfig[scanResult.severity] || severityConfig.medium;
-  const problemType = problemTypeConfig[scanResult.problemType] || problemTypeConfig.disease;
-  const ProblemIcon = problemType.icon;
-
-  // Handle final submission
-  const handleRecommendProducts = async () => {
-    if (!currentCrop) {
-      toast.error('Please confirm or select a crop first.');
-      return;
-    }
-
-    // Healthy crop path - no products needed
-    if (scanResult.problemType === 'healthy' && !currentProblem) {
-      toast.success(
-        language === 'te'
-          ? 'పంట ఆరోగ్యంగా ఉందని నిర్ధారించబడింది.'
-          : language === 'hi'
-          ? 'फसल के स्वस्थ होने की पुष्टि हुई है।'
-          : 'Crop confirmed healthy. Returning home.'
-      );
-      navigate('/home');
-      return;
-    }
-
-    if (!currentProblem) {
-      toast.error('Please confirm or select a crop problem.');
-      return;
-    }
-
+  // Handle manual correction overrides
+  const handleCropChange = async (crop: Crop) => {
+    setActiveCrop(crop);
+    setIsChangingCrop(false);
+    
+    // Fetch problems for the newly selected crop
     setMatchingLoading(true);
     try {
-      // Step 4: Record analytics scan log
-      try {
-        await supabase.from('analytics').insert({
-          crop_id: currentCrop.id,
-          problem_id: currentProblem.id,
-          created_at: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn('Analytics logging failed:', err);
+      const { data } = await supabase
+        .from('problems')
+        .select('*')
+        .eq('crop_id', crop.id);
+      
+      const problems = data || [];
+      setDbProblems(problems);
+      
+      // Reset active problem and show results
+      if (problems.length > 0) {
+        setActiveProblem(problems[0]);
+      } else {
+        setActiveProblem(null);
       }
-
-      // Navigate to products recommendations
-      navigate('/products', {
-        state: {
-          crop: currentCrop,
-          problems: [currentProblem],
-          stage: undefined,
-        },
-      });
-    } catch (error) {
-      console.error('Error in confirmation products flow:', error);
-      toast.error('Error loading recommendations');
+      
+      // Update triage 2 result with corrected crop info
+      if (triage2Result) {
+        setTriage2Result({
+          ...triage2Result,
+          problemName: {
+            en: problems[0]?.title_en || 'Healthy',
+            te: problems[0]?.title_te || 'ఆరోగ్యకరమైనది',
+            hi: problems[0]?.title_hi || 'स्वस्थ'
+          },
+          problemType: (problems[0]?.problem_type as any) || 'healthy',
+        });
+      }
+    } catch (e) {
+      console.error(e);
     } finally {
       setMatchingLoading(false);
     }
   };
 
-  // Helper to format text/keys in chosen language
-  const getCropName = (c: Crop | null) => {
+  const handleRecommendProducts = async () => {
+    if (!activeCrop) {
+      toast.error('Please confirm or select a crop.');
+      return;
+    }
+
+    if (triage2Result?.problemType === 'healthy' && !activeProblem) {
+      toast.success(
+        language === 'te'
+          ? 'పంట ఆరోగ్యంగా ఉంది. సిఫార్సులు అవసరం లేదు.'
+          : language === 'hi'
+          ? 'फसल स्वस्थ है। किसी अनुशंसा की आवश्यकता नहीं है।'
+          : 'Crop is healthy. No treatment products required.'
+      );
+      navigate('/home');
+      return;
+    }
+
+    if (!activeProblem) {
+      toast.error('Please select a crop disease.');
+      return;
+    }
+
+    setMatchingLoading(true);
+    try {
+      // Record to analytics
+      await supabase.from('analytics').insert({
+        crop_id: activeCrop.id,
+        problem_id: activeProblem.id,
+        language: language,
+      });
+    } catch (err) {
+      console.warn('Failed to record analytics scan log:', err);
+    }
+
+    // Redirect to recommendations
+    navigate('/products', {
+      state: {
+        crop: activeCrop,
+        problems: [activeProblem],
+        stage: undefined,
+      },
+    });
+    setMatchingLoading(false);
+  };
+
+  // Language helper translations
+  const getTrans = (obj: { en: string; te: string; hi: string } | undefined) => {
+    if (!obj) return '';
+    return obj[language] || obj.en;
+  };
+
+  const getCropTitle = (c: Crop | null) => {
     if (!c) return '...';
     if (language === 'te') return c.name_te || c.name_en;
     if (language === 'hi') return c.name_hi || c.name_en;
@@ -274,8 +380,8 @@ const ScanResults = () => {
 
   const getProblemTitle = (p: Problem | null) => {
     if (!p) {
-      return scanResult.problemType === 'healthy' 
-        ? (language === 'te' ? 'ఆరోగ్యకరమైనది' : language === 'hi' ? 'स्वस्थ' : 'Healthy')
+      return triage2Result?.problemType === 'healthy'
+        ? (language === 'te' ? 'ఆరోగ్యకరమైన పంట' : language === 'hi' ? 'स्वस्थ फसल' : 'Healthy Crop')
         : '...';
     }
     if (language === 'te') return p.title_te || p.title_en;
@@ -288,501 +394,287 @@ const ScanResults = () => {
       <HomeButton />
       <div className="absolute inset-0 bg-black/60 z-0" />
 
-      {/* Demo Warning Banner */}
-      {scanResult.isDemoFallback && (
-        <div className="absolute top-16 left-0 right-0 z-50 bg-[#F59E0B] text-black px-4 py-2 flex items-center justify-center gap-2 font-bold text-sm text-center shadow-lg animate-fade-in">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{t('demoModeWarning')}</span>
-        </div>
-      )}
-
       <div className="container mx-auto px-4 py-12 pt-28 flex-1 relative z-10 max-w-6xl">
-        {/* Step-by-Step Title Indicator */}
-        <div className="text-center mb-8 animate-fade-in">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <Sparkles className="w-8 h-8 text-[#4ADE80]" />
-            <h1 className="text-4xl md:text-5xl font-display font-black text-[#4ADE80] drop-shadow-lg">
-              Confirm Diagnosis
-            </h1>
-          </div>
-          
-          {/* Progress Steps UI */}
-          <div className="flex items-center justify-center gap-3 max-w-sm mx-auto mt-2">
-            <div className="flex items-center gap-2">
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm transition-all duration-300 ${
-                wizardStep === 1 
-                  ? 'bg-[#4ADE80] text-[#1B4332] ring-4 ring-[#4ADE80]/30' 
-                  : 'bg-[#4ADE80]/20 text-[#4ADE80] border border-[#4ADE80]/40'
-              }`}>
-                1
-              </span>
-              <span className={`text-sm font-bold transition-all duration-300 ${wizardStep === 1 ? 'text-[#4ADE80]' : 'text-white/60'}`}>
-                Crop
-              </span>
+        {/* Dynamic Loaders */}
+        {(wizardStep === 'loading_phase1' || wizardStep === 'loading_phase2') && (
+          <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
+            <div className="relative w-32 h-32 mb-8 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-[#4ADE80]/30 animate-ping" />
+              <div className="absolute inset-2 rounded-full border-4 border-[#4ADE80]/50 animate-pulse" />
+              <div className="w-20 h-20 rounded-full bg-[#1B4332] border-2 border-[#4ADE80] flex items-center justify-center shadow-[0_0_30px_#4ADE80]">
+                <Sparkles className="w-10 h-10 text-[#4ADE80] animate-spin" style={{ animationDuration: '6s' }} />
+              </div>
             </div>
-            <div className="w-12 h-0.5 bg-white/20 rounded-full" />
-            <div className="flex items-center gap-2">
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm transition-all duration-300 ${
-                wizardStep === 2 
-                  ? 'bg-[#4ADE80] text-[#1B4332] ring-4 ring-[#4ADE80]/30' 
-                  : 'bg-white/10 text-white/40 border border-white/10'
-              }`}>
-                2
-              </span>
-              <span className={`text-sm font-bold transition-all duration-300 ${wizardStep === 2 ? 'text-[#4ADE80]' : 'text-white/40'}`}>
-                Problem
-              </span>
-            </div>
+            <h2 className="text-2xl md:text-3xl font-display font-black text-center mb-2 tracking-wide text-[#4ADE80]">
+              {loadingText}
+            </h2>
+            <p className="text-white/50 text-sm max-w-sm text-center">
+              Our agronomist AI is parsing visual structures and database records to target a high-accuracy match.
+            </p>
           </div>
-        </div>
+        )}
 
-        {/* Core Layout - Split Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          
-          {/* Left Column: Image Card */}
-          <div className="lg:col-span-5 relative animate-fade-in">
-            <Card className="overflow-hidden rounded-[2.5rem] border-4 border-[#4ADE80]/30 shadow-[0_0_60px_rgba(74,222,128,0.2)] bg-black/40">
-              <img
-                src={capturedImage}
-                alt="Captured crop"
-                className="w-full aspect-[4/3] object-cover"
-              />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-6 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-[#4ADE80]" />
-                  <span className="text-white/90 text-sm font-bold">Your Captured Photo</span>
-                </div>
-                <div className={`${getConfidenceBg()} text-white font-black text-xs px-3.5 py-1.5 rounded-full shadow-md`}>
-                  {confidencePercent}% AI Match
-                </div>
+        {/* Error State */}
+        {wizardStep === 'error' && (
+          <div className="flex flex-col items-center justify-center py-16 animate-fade-in">
+            <Card className="bg-[#1B4332] border-red-500/30 border-2 rounded-[2.5rem] p-8 max-w-md w-full text-center shadow-2xl">
+              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/40">
+                <AlertCircle className="w-10 h-10 text-red-400" />
+              </div>
+              <h3 className="text-2xl font-display font-black text-red-400 mb-2">Triage Unsuccessful</h3>
+              <p className="text-white/70 text-sm mb-6 leading-relaxed bg-[#0D1F16] border border-white/5 rounded-xl p-4 font-mono text-left max-h-40 overflow-y-auto">
+                {errorMessage}
+              </p>
+              <div className="flex flex-col gap-3">
+                <Button
+                  onClick={() => navigate('/scan')}
+                  className="w-full h-14 rounded-xl bg-white text-[#1B4332] hover:bg-white/90 font-bold"
+                >
+                  Return to Camera
+                </Button>
+                <Button
+                  onClick={() => {
+                    setErrorMessage('');
+                    setWizardStep('init');
+                  }}
+                  className="w-full h-14 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold"
+                >
+                  Retry Scan Analysis
+                </Button>
               </div>
             </Card>
           </div>
+        )}
 
-          {/* Right Column: Wizard Steps Panels */}
-          <div className="lg:col-span-7">
+        {/* Wizard UI */}
+        {(wizardStep === 'triage_questions' || wizardStep === 'results') && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
-            {/* Step 1: Crop Confirmation */}
-            {wizardStep === 1 && (
-              <Card className="bg-[#1B4332] rounded-[2.5rem] border-2 border-[#4ADE80]/20 p-8 md:p-10 animate-fade-in shadow-2xl relative overflow-hidden">
-                <div className="absolute -top-12 -right-12 w-24 h-24 bg-[#4ADE80]/5 rounded-full blur-2xl" />
-                
-                <h2 className="text-sm uppercase tracking-wider text-[#4ADE80] font-black mb-1">Step 1 of 2</h2>
-                <h3 className="text-2xl md:text-3xl font-display font-black mb-6 text-white">
-                  {t('confirmCropQuestion')}
-                </h3>
-
-                {cropsLoading ? (
-                  <div className="flex items-center gap-3 py-6 justify-center">
-                    <Loader2 className="w-6 h-6 text-[#4ADE80] animate-spin" />
-                    <span>Resolving crop in database...</span>
+            {/* Left Column: Image Card */}
+            <div className="lg:col-span-5 relative animate-fade-in">
+              <Card className="overflow-hidden rounded-[2.5rem] border-4 border-[#4ADE80]/30 shadow-[0_0_60px_rgba(74,222,128,0.2)] bg-black/40">
+                <img
+                  src={capturedImage}
+                  alt="Captured Crop"
+                  className="w-full aspect-[4/3] object-cover"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-6 flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-[#4ADE80]" />
+                    <span className="text-white/90 text-sm font-bold">Captured Crop Leaf</span>
                   </div>
-                ) : (
-                  <>
-                    {/* Resolved Crop Badge */}
-                    <div className={`bg-[#0D1F16] border-2 ${currentCrop ? 'border-[#4ADE80]/30' : 'border-red-500/30'} rounded-2xl p-5 mb-8 flex items-center justify-between shadow-inner`}>
-                      <div className="flex items-center gap-4">
-                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center border ${currentCrop ? 'bg-[#4ADE80]/15 border-[#4ADE80]/25' : 'bg-red-500/15 border-red-500/25'}`}>
-                          <Leaf className={`w-7 h-7 ${currentCrop ? 'text-[#4ADE80]' : 'text-red-500'}`} />
-                        </div>
-                        <div>
-                          <p className="text-xs text-white/50 font-bold uppercase tracking-wider">Identified Crop</p>
-                          <p className="text-2xl font-black text-white">
-                            {currentCrop ? getCropName(currentCrop) : `Not Supported (${scanResult.cropName[language]})`}
-                          </p>
-                        </div>
-                      </div>
-                      {currentCrop ? (
-                        <CheckCircle className="w-8 h-8 text-[#4ADE80] drop-shadow-[0_0_8px_rgba(74,222,128,0.4)]" />
-                      ) : (
-                        <AlertTriangle className="w-8 h-8 text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.4)]" />
-                      )}
+                  
+                  {wizardStep === 'results' && triage2Result && (
+                    <div className="bg-[#4ADE80] text-[#1B4332] font-black text-xs px-3.5 py-1.5 rounded-full shadow-md shadow-[#4ADE80]/30">
+                      {triage2Result.confidence}% AI Accuracy
                     </div>
-
-                    {/* Step Actions */}
-                    {!currentCrop ? (
-                      <div className="space-y-6">
-                        <div className="flex items-start gap-3 text-red-400 text-sm font-bold bg-red-500/10 p-4 rounded-xl border border-red-500/20">
-                          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                          <span>We could not find this crop in our database catalog. Please select your crop manually from the list below, or capture a new photo.</span>
-                        </div>
-                        <div className="flex gap-4">
-                          <Button
-                            onClick={() => navigate('/scan')}
-                            className="flex-1 h-14 rounded-xl text-md font-bold bg-white text-[#1B4332] hover:bg-white/90"
-                          >
-                            <Camera className="mr-2 w-5 h-5" />
-                            Try Scanning Again
-                          </Button>
-                        </div>
-                        <div className="border-t border-white/10 pt-6">
-                          <p className="text-sm font-bold text-white/60 uppercase tracking-wider mb-4">
-                            {t('selectCorrectCrop')}
-                          </p>
-                          <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
-                            {allCrops.map((c) => {
-                              const cName = language === 'te' ? c.name_te : language === 'hi' ? c.name_hi : c.name_en;
-                              return (
-                                <div
-                                  key={c.id}
-                                  onClick={() => {
-                                    setCurrentCrop(c);
-                                    setIsChangingCrop(false);
-                                    setWizardStep(2);
-                                    toast.success(`Crop selected: ${cName}`);
-                                  }}
-                                  className="p-3 rounded-xl border bg-white/5 border-white/10 text-white/80 hover:bg-white/10 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:scale-[1.02]"
-                                >
-                                  <span className="text-sm font-bold truncate">{cName}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    ) : !isChangingCrop ? (
-                      <div className="flex flex-col sm:flex-row gap-4">
-                        <Button
-                          onClick={() => setWizardStep(2)}
-                          className="flex-1 h-16 rounded-2xl text-lg font-black bg-[#4ADE80] text-[#1B4332] hover:bg-white transition-all transform hover:scale-[1.02] shadow-lg shadow-[#4ADE80]/20"
-                        >
-                          {t('yesCorrect')}
-                          <ArrowRight className="ml-2 h-5 w-5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setIsChangingCrop(true)}
-                          className="flex-1 h-16 rounded-2xl text-lg font-black border-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white transition-all"
-                        >
-                          {t('noChangeCrop')}
-                        </Button>
-                      </div>
-                    ) : (
-                      /* Crop Selection Grid when crop is changing */
-                      <div className="border-t border-white/10 pt-6 animate-fade-in">
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="text-sm font-bold text-white/60 uppercase tracking-wider">
-                            {t('selectCorrectCrop')}
-                          </p>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => setIsChangingCrop(false)}
-                            className="text-[#4ADE80] hover:text-white"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
-                          {allCrops.map((c) => {
-                            const cName = language === 'te' ? c.name_te : language === 'hi' ? c.name_hi : c.name_en;
-                            const isSelected = currentCrop?.id === c.id;
-                            return (
-                              <div
-                                key={c.id}
-                                onClick={() => {
-                                  setCurrentCrop(c);
-                                  setIsChangingCrop(false);
-                                  setWizardStep(2);
-                                  toast.success(`Crop changed to ${cName}`);
-                                }}
-                                className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all duration-300 hover:scale-[1.02] ${
-                                  isSelected
-                                    ? 'bg-[#4ADE80]/25 border-[#4ADE80] text-white shadow-md shadow-[#4ADE80]/10'
-                                    : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'
-                                }`}
-                              >
-                                <span className="text-sm font-bold truncate">{cName}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                  )}
+                </div>
               </Card>
-            )}
+            </div>
 
-            {/* Step 2: Problem Confirmation */}
-            {wizardStep === 2 && (
-              <Card className="bg-[#1B4332] rounded-[2.5rem] border-2 border-[#4ADE80]/20 p-8 md:p-10 animate-fade-in shadow-2xl relative">
-                
-                {/* Back Button to Step 1 */}
-                <button
-                  onClick={() => {
-                    setWizardStep(1);
-                    setIsChangingProblem(false);
-                  }}
-                  className="text-white/60 hover:text-white flex items-center gap-1.5 text-sm font-bold mb-4 transition-colors group"
-                >
-                  <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-                  Back to Crop Confirmation ({getCropName(currentCrop)})
-                </button>
+            {/* Right Column: Interactive Content */}
+            <div className="lg:col-span-7">
 
-                <h2 className="text-sm uppercase tracking-wider text-[#4ADE80] font-black mb-1">Step 2 of 2</h2>
-                <h3 className="text-2xl md:text-3xl font-display font-black mb-6 text-white">
-                  {scanResult.problemType === 'healthy' && !currentProblem
-                    ? 'Confirm Crop Health'
-                    : t('confirmProblemQuestion')}
-                </h3>
-
-                {problemsLoading ? (
-                  <div className="flex items-center gap-3 py-6 justify-center">
-                    <Loader2 className="w-6 h-6 text-[#4ADE80] animate-spin" />
-                    <span>Loading problems database...</span>
+              {/* Questionnaire Flow */}
+              {wizardStep === 'triage_questions' && triage1Result && (
+                <Card className="bg-[#1B4332] rounded-[2.5rem] border-2 border-[#4ADE80]/20 p-8 md:p-10 animate-fade-in shadow-2xl relative overflow-hidden">
+                  <div className="absolute -top-12 -right-12 w-24 h-24 bg-[#4ADE80]/5 rounded-full blur-2xl" />
+                  
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2 bg-[#0D1F16] border border-white/5 px-3 py-1 rounded-full text-xs font-bold text-white/70">
+                      <HelpCircle className="w-3.5 h-3.5 text-[#4ADE80]" />
+                      <span>Symptom Triage Question {currentQuestionIdx + 1} of {triage1Result.questions.length}</span>
+                    </div>
+                    <span className="text-xs font-bold text-white/50">
+                      Detected Crop: <span className="text-[#4ADE80] uppercase">{getCropTitle(activeCrop)}</span>
+                    </span>
                   </div>
-                ) : (
-                  <>
-                    {/* Active problem type card */}
-                    <div className={`bg-[#0D1F16] border-2 ${
-                      scanResult.problemType === 'healthy' && !currentProblem 
-                        ? 'border-[#4ADE80]/30' 
-                        : currentProblem 
-                        ? 'border-[#4ADE80]/30' 
-                        : 'border-red-500/30'
-                    } rounded-2xl p-6 mb-8 shadow-inner`}>
+
+                  <h3 className="text-2xl md:text-3xl font-display font-black mb-8 leading-snug">
+                    {getTrans(triage1Result.questions[currentQuestionIdx].text)}
+                  </h3>
+
+                  <div className="space-y-4">
+                    {triage1Result.questions[currentQuestionIdx].options.map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleAnswerSelect(option.value, option.label)}
+                        className="w-full text-left p-5 rounded-2xl border bg-white/5 border-white/10 hover:bg-[#4ADE80]/15 hover:border-[#4ADE80]/40 transition-all duration-300 transform hover:scale-[1.01] active:scale-95 group flex items-center justify-between"
+                      >
+                        <span className="text-lg font-bold text-white/90 group-hover:text-white">
+                          {getTrans(option.label)}
+                        </span>
+                        <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-[#4ADE80] transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Triage Results */}
+              {wizardStep === 'results' && triage2Result && (
+                <Card className="bg-[#1B4332] rounded-[2.5rem] border-2 border-[#4ADE80]/20 p-8 md:p-10 animate-fade-in shadow-2xl relative">
+                  
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-[#4ADE80]" />
+                      <span className="text-xs uppercase tracking-wider text-[#4ADE80] font-black">AI Diagnosis Confirmed</span>
+                    </div>
+                    <span className="text-white/40 text-xs font-bold uppercase tracking-wider">
+                      Crop: {getCropTitle(activeCrop)}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#0D1F16] border-2 border-[#4ADE80]/30 rounded-3xl p-6 mb-8 shadow-inner">
+                    <div className="flex items-center justify-between mb-4">
                       
-                      {/* Badge / Metadata */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${
-                          scanResult.problemType === 'healthy' && !currentProblem 
-                            ? 'bg-green-500/20 text-green-400 border-green-500/40' 
-                            : currentProblem 
-                            ? problemType.bg + ' ' + problemType.text + ' border ' + problemType.border 
-                            : 'bg-red-500/20 text-red-400 border-red-500/40'
-                        }`}>
-                          {scanResult.problemType === 'healthy' && !currentProblem ? (
-                            <ShieldCheck className="w-4 h-4" />
-                          ) : (
-                            <ProblemIcon className="w-4 h-4" />
-                          )}
-                          <span className="font-black text-xs uppercase tracking-wider">
-                            {scanResult.problemType === 'healthy' && !currentProblem ? 'HEALTHY' : currentProblem ? problemType.label : 'NOT MATCHED'}
-                          </span>
-                        </div>
-                        <span className="text-white/40 text-xs font-bold uppercase tracking-wider">
-                          Crop: {getCropName(currentCrop)}
+                      {/* Problem Type Badge */}
+                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${
+                        triage2Result.problemType === 'healthy' && !activeProblem
+                          ? 'bg-green-500/20 text-green-400 border border-green-500/40'
+                          : activeProblem
+                          ? problemTypeConfig[triage2Result.problemType].bg + ' ' + problemTypeConfig[triage2Result.problemType].text + ' border ' + problemTypeConfig[triage2Result.problemType].border
+                          : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                      }`}>
+                        {triage2Result.problemType === 'healthy' && !activeProblem ? (
+                          <ShieldCheck className="w-4 h-4" />
+                        ) : (
+                          (() => {
+                            const Icon = problemTypeConfig[triage2Result.problemType]?.icon || AlertTriangle;
+                            return <Icon className="w-4 h-4" />;
+                          })()
+                        )}
+                        <span className="font-black text-xs uppercase tracking-wider">
+                          {triage2Result.problemType === 'healthy' && !activeProblem
+                            ? 'Healthy'
+                            : activeProblem
+                            ? getTrans(problemTypeConfig[triage2Result.problemType].label)
+                            : 'Unmatched'}
                         </span>
                       </div>
 
-                      {/* Display problem name */}
-                      <h4 className="text-2xl md:text-3xl font-display font-black text-white mb-4">
-                        {currentProblem 
-                          ? getProblemTitle(currentProblem) 
-                          : scanResult.problemType === 'healthy' 
-                          ? 'Healthy / No Issues Detected' 
-                          : `Not Matched (${scanResult.problemName[language]})`}
-                      </h4>
-
-                      {/* Severity if diseased */}
-                      {currentProblem && (
-                        <div className="mb-4">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-bold text-white/50 uppercase tracking-wider">{t('severity')}</span>
-                            <span className={`text-xs font-black uppercase tracking-wider ${
-                              scanResult.severity === 'critical' ? 'text-red-400' : 'text-[#4ADE80]'
-                            }`}>{severity.label}</span>
-                          </div>
-                          <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                            <div className={`h-full ${severity.color} ${severity.width} rounded-full`} />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Description / Healthy message */}
-                      <p className="text-sm text-white/70 leading-relaxed">
-                        {currentProblem 
-                          ? (language === 'te' 
-                              ? currentProblem.description || scanResult.description.te
-                              : language === 'hi'
-                              ? currentProblem.description || scanResult.description.hi
-                              : currentProblem.description || scanResult.description.en)
-                          : scanResult.description[language]
-                        }
-                      </p>
+                      {/* Accuracy Score */}
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-white/50 uppercase block mb-0.5">Confidence</span>
+                        <span className="text-xl font-black text-[#4ADE80] drop-shadow-[0_0_10px_rgba(74,222,128,0.4)]">
+                          {triage2Result.confidence}% Verified
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Symptoms block (if any) */}
-                    {currentProblem && scanResult.symptoms.length > 0 && !isChangingProblem && (
-                      <div className="mb-8">
-                        <h5 className="text-xs font-black uppercase tracking-wider text-[#4ADE80] mb-3">{t('symptoms')}</h5>
-                        <div className="flex flex-wrap gap-2">
-                          {scanResult.symptoms.map((sym, idx) => (
-                            <span key={idx} className="bg-[#4ADE80]/15 text-[#4ADE80] text-xs font-bold px-3 py-1.5 rounded-full border border-[#4ADE80]/20 flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              {sym}
-                            </span>
-                          ))}
+                    <h4 className="text-2xl md:text-3xl font-display font-black text-white mb-4">
+                      {activeProblem ? getProblemTitle(activeProblem) : getTrans(triage2Result.problemName)}
+                    </h4>
+
+                    {/* Severity Rating */}
+                    {activeProblem && (
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-white/50 uppercase tracking-wider">{t('severity')}</span>
+                          <span className={`text-xs font-black uppercase ${
+                            triage2Result.severity === 'critical' ? 'text-red-400' : 'text-[#4ADE80]'
+                          }`}>
+                            {getTrans(severityConfig[triage2Result.severity]?.label)}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-white/15 rounded-full overflow-hidden">
+                          <div className={`h-full ${severityConfig[triage2Result.severity]?.color} ${severityConfig[triage2Result.severity]?.width} rounded-full`} />
                         </div>
                       </div>
                     )}
 
-                    {/* Similar cases/reference photos */}
-                    {currentProblem && scanResult.referenceImageKeywords.length > 0 && !isChangingProblem && (
-                      <div className="mb-8">
-                        <h5 className="text-xs font-black uppercase tracking-wider text-[#4ADE80] mb-3">{t('similarCases')}</h5>
-                        <div className="flex gap-3 overflow-x-auto pb-1 max-w-full">
-                          {scanResult.referenceImageKeywords.slice(0, 3).map((kw, idx) => (
-                            <div key={idx} className="flex-shrink-0 w-32 border border-white/10 rounded-lg overflow-hidden bg-black/20">
-                              <img
-                                src={`https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?q=80&w=200&auto=format&fit=crop`}
-                                alt={kw}
-                                className="w-full h-20 object-cover opacity-60"
-                              />
-                              <p className="text-[10px] p-1.5 text-white/50 text-center capitalize truncate">{kw}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <p className="text-sm text-white/70 leading-relaxed">
+                      {getTrans(triage2Result.description)}
+                    </p>
+                  </div>
 
-                    {/* Actions */}
-                    {!currentProblem && scanResult.problemType !== 'healthy' ? (
-                      <div className="space-y-6 animate-fade-in">
-                        <div className="flex items-start gap-3 text-red-400 text-sm font-bold bg-red-500/10 p-4 rounded-xl border border-red-500/20">
-                          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                          <span>We could not match this problem in our catalog database. Please select the correct problem manually from the list below, or try scanning again.</span>
-                        </div>
-                        <div className="flex gap-4">
-                          <Button
-                            onClick={() => navigate('/scan')}
-                            className="flex-1 h-14 rounded-xl text-md font-bold bg-white text-[#1B4332] hover:bg-white/90"
-                          >
-                            <Camera className="mr-2 w-5 h-5" />
-                            Try Scanning Again
-                          </Button>
-                        </div>
-                        <div className="border-t border-white/10 pt-6">
-                          <p className="text-sm font-bold text-white/60 uppercase tracking-wider mb-4">
-                            {t('selectCorrectProblem')}
-                          </p>
-                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {cropProblems.map((p) => {
-                              const pTitle = language === 'te' ? p.title_te : language === 'hi' ? p.title_hi : p.title_en;
-                              return (
-                                <div
-                                  key={p.id}
-                                  onClick={() => {
-                                    setCurrentProblem(p);
-                                    setIsChangingProblem(false);
-                                    toast.success(`Problem selected: ${pTitle}`);
-                                  }}
-                                  className="p-3 rounded-xl border bg-white/5 border-white/10 text-white/80 hover:bg-white/10 flex items-center justify-between cursor-pointer transition-all duration-300 hover:translate-x-1"
-                                >
-                                  <span className="text-sm font-bold truncate pr-4">{pTitle}</span>
-                                  <Check className="w-4 h-4 text-[#4ADE80] opacity-0 hover:opacity-100 transition-opacity" />
-                                </div>
-                              );
-                            })}
-                            <div
-                              onClick={() => {
-                                setCurrentProblem(null);
-                                setIsChangingProblem(false);
-                                toast.success('Marked crop as Healthy');
-                              }}
-                              className="p-3 rounded-xl border bg-white/5 border-white/10 text-white/80 hover:bg-white/10 flex items-center justify-between cursor-pointer transition-all duration-300 hover:translate-x-1"
-                            >
-                              <span className="text-sm font-bold truncate text-[#4ADE80]">Mark as Healthy / Healthy Crop</span>
-                            </div>
-                          </div>
-                        </div>
+                  {/* Symptoms list */}
+                  {triage2Result.symptoms && triage2Result.symptoms.length > 0 && !isChangingCrop && (
+                    <div className="mb-8">
+                      <h5 className="text-xs font-black uppercase tracking-wider text-[#4ADE80] mb-3">Diagnostic Indicators</h5>
+                      <div className="flex flex-wrap gap-2">
+                        {triage2Result.symptoms.map((symptom, idx) => (
+                          <span key={idx} className="bg-[#4ADE80]/10 text-[#4ADE80] text-xs font-bold px-3 py-1.5 rounded-full border border-[#4ADE80]/20 flex items-center gap-1.5">
+                            <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                            {symptom}
+                          </span>
+                        ))}
                       </div>
-                    ) : !isChangingProblem ? (
-                      <div className="flex flex-col sm:flex-row gap-4">
-                        <Button
-                          onClick={handleRecommendProducts}
-                          disabled={matchingLoading}
-                          className="flex-[2] h-16 rounded-2xl text-lg font-black bg-[#4ADE80] text-[#1B4332] hover:bg-white transition-all transform hover:scale-[1.02] shadow-lg shadow-[#4ADE80]/20 disabled:opacity-75"
-                        >
-                          {matchingLoading ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                          ) : scanResult.problemType === 'healthy' && !currentProblem ? (
-                            'Confirm & Finish'
-                          ) : (
-                            t('confirmProblem')
-                          )}
-                          <ArrowRight className="ml-2 h-5 w-5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setIsChangingProblem(true)}
-                          className="flex-1 h-16 rounded-2xl text-lg font-black border-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white transition-all"
-                        >
-                          {t('noChangeProblem')}
-                        </Button>
-                      </div>
-                    ) : (
-                      /* Problem Selection List when changing problem */
-                      <div className="border-t border-white/10 pt-6 animate-fade-in">
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="text-sm font-bold text-white/60 uppercase tracking-wider">
-                            {t('selectCorrectProblem')}
-                          </p>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setIsChangingProblem(false)}
-                            className="text-[#4ADE80] hover:text-white"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                        {cropProblems.length === 0 ? (
-                          <p className="text-white/50 text-sm">No other problems found in database for this crop.</p>
+                    </div>
+                  )}
+
+                  {/* Bottom Buttons */}
+                  {!isChangingCrop && (
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <Button
+                        onClick={handleRecommendProducts}
+                        disabled={matchingLoading}
+                        className="flex-[2] h-16 rounded-2xl text-lg font-black bg-[#4ADE80] text-[#1B4332] hover:bg-white transition-all transform hover:scale-[1.02] shadow-lg shadow-[#4ADE80]/20 disabled:opacity-75"
+                      >
+                        {matchingLoading ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : triage2Result.problemType === 'healthy' && !activeProblem ? (
+                          'Done'
                         ) : (
-                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {cropProblems.map((p) => {
-                              const pTitle = language === 'te' ? p.title_te : language === 'hi' ? p.title_hi : p.title_en;
-                              const isSelected = currentProblem?.id === p.id;
-                              return (
-                                <div
-                                  key={p.id}
-                                  onClick={() => {
-                                    setCurrentProblem(p);
-                                    setIsChangingProblem(false);
-                                    toast.success(`Problem changed to ${pTitle}`);
-                                  }}
-                                  className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all duration-300 hover:translate-x-1 ${
-                                    isSelected
-                                      ? 'bg-[#4ADE80]/20 border-[#4ADE80] text-white font-bold'
-                                      : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'
-                                  }`}
-                                >
-                                  <span className="text-sm truncate pr-4">{pTitle}</span>
-                                  {isSelected && <Check className="w-4 h-4 text-[#4ADE80] flex-shrink-0" />}
-                                </div>
-                              );
-                            })}
+                          t('confirmProblem')
+                        )}
+                        <ArrowRight className="ml-2 h-5 w-5" />
+                      </Button>
+                      
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsChangingCrop(true)}
+                        className="flex-1 h-16 rounded-2xl text-sm md:text-md font-bold border-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white transition-all"
+                      >
+                        Change Crop
+                      </Button>
+                    </div>
+                  )}
 
-                            {/* Option to diagnose as healthy */}
+                  {/* Override Crop Selection Grid */}
+                  {isChangingCrop && (
+                    <div className="border-t border-white/10 pt-6 animate-fade-in">
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm font-bold text-white/60 uppercase tracking-wider">
+                          Select Correct Crop Manually
+                        </p>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => setIsChangingCrop(false)}
+                          className="text-[#4ADE80] hover:text-white"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
+                        {allCrops.map((c) => {
+                          const isSelected = activeCrop?.id === c.id;
+                          return (
                             <div
-                              onClick={() => {
-                                setCurrentProblem(null);
-                                setIsChangingProblem(false);
-                                toast.success('Marked crop as Healthy');
-                              }}
-                              className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all duration-300 hover:translate-x-1 ${
-                                !currentProblem
+                              key={c.id}
+                              onClick={() => handleCropChange(c)}
+                              className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all duration-300 hover:scale-[1.01] ${
+                                isSelected
                                   ? 'bg-[#4ADE80]/20 border-[#4ADE80] text-white font-bold'
                                   : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'
                               }`}
                             >
-                              <span className="text-sm truncate text-[#4ADE80]">Mark as Healthy / Healthy Crop</span>
-                              {!currentProblem && <Check className="w-4 h-4 text-[#4ADE80] flex-shrink-0" />}
+                              <span className="text-sm truncate pr-2">{getCropTitle(c)}</span>
+                              {isSelected && <Check className="w-4 h-4 text-[#4ADE80] flex-shrink-0" />}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })}
                       </div>
-                    )}
-                  </>
-                )}
-              </Card>
-            )}
+                    </div>
+                  )}
+                </Card>
+              )}
 
+            </div>
           </div>
-
-        </div>
+        )}
 
       </div>
     </div>

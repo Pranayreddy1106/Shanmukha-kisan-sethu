@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { HomeButton } from '@/components/HomeButton';
-import { analyzeCropImage, getMockScanResult } from '@/services/geminiService';
+// Bypassed Gemini imports to use client-side TensorFlow.js
 import { toast } from 'sonner';
 
 const CropScanner = () => {
@@ -130,32 +130,7 @@ const CropScanner = () => {
 
   // ─── Shared Analysis Logic ─────────────────────────────────
   const runAnalysis = async (base64Data: string, capturedImage: string) => {
-    setIsScanning(true);
-    setScanError(null);
-    setActiveCapturedImage(capturedImage);
-
-    try {
-      const scanResult = await analyzeCropImage(base64Data);
-      navigate('/scan-results', { state: { scanResult, capturedImage } });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : l('errorAnalysis');
-      console.error('AI Analysis failed:', msg);
-      setScanError(msg);
-      setIsScanning(false);
-    }
-  };
-
-  const handleSimulatedDemo = async () => {
-    if (!activeCapturedImage) return;
-    setIsScanning(true);
-    setScanError(null);
-    try {
-      const scanResult = await getMockScanResult();
-      navigate('/scan-results', { state: { scanResult, capturedImage: activeCapturedImage } });
-    } catch (error) {
-      toast.error('Demo simulation failed');
-      setIsScanning(false);
-    }
+    navigate('/scan-results', { state: { capturedImage, base64Image: base64Data } });
   };
 
   // ─── Render ────────────────────────────────────────────────

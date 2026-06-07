@@ -1,10 +1,27 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from '@/integrations/supabase/client';
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+export interface TriageQuestion {
+  id: string;
+  text: { en: string; te: string; hi: string };
+  options: {
+    label: { en: string; te: string; hi: string };
+    value: string;
+  }[];
+}
 
-export interface ScanResult {
+export interface TriagePhase1Result {
+  matchedCropId: string;
   cropName: { en: string; te: string; hi: string };
+  potentialProblems: {
+    title: string;
+    reason: string;
+  }[];
+  questions: TriageQuestion[];
+  isDemoFallback?: boolean;
+}
+
+export interface TriagePhase2Result {
+  matchedProblemId: string;
   problemName: { en: string; te: string; hi: string };
   problemType: 'pest' | 'disease' | 'deficiency' | 'healthy';
   confidence: number;
@@ -15,200 +32,184 @@ export interface ScanResult {
   isDemoFallback?: boolean;
 }
 
-export async function getMockScanResult(): Promise<ScanResult> {
-  try {
-    // 1. Fetch crops from supabase
-    const { data: crops, error: cropsError } = await supabase
-      .from('crops')
-      .select('*');
-    
-    if (cropsError || !crops || crops.length === 0) {
-      throw new Error('No crops found in DB');
-    }
-    
-    // Pick a random crop
-    const crop = crops[Math.floor(Math.random() * crops.length)];
-    
-    // 2. Fetch problems for this crop
-    const { data: problems, error: problemsError } = await supabase
-      .from('problems')
-      .select('*')
-      .eq('crop_id', crop.id);
-      
-    // Determine problem type and info
-    if (problems && problems.length > 0) {
-      const problem = problems[Math.floor(Math.random() * problems.length)];
-      return {
-        cropName: {
-          en: crop.name_en || 'Unknown Crop',
-          te: crop.name_te || crop.name_en || 'తెలియని పంట',
-          hi: crop.name_hi || crop.name_en || 'अज्ञात फसल',
+// ─── Phase 1 Fallback (Demo) ──────────────────────────────────
+export async function getMockTriagePhase1(
+  knownCrops: { id: string; name_en: string; name_te: string; name_hi: string }[]
+): Promise<TriagePhase1Result> {
+  const crop = knownCrops.length > 0
+    ? knownCrops[Math.floor(Math.random() * knownCrops.length)]
+    : { id: 'rice-id', name_en: 'Rice', name_te: 'వరి', name_hi: 'चावल' };
+
+  const questions: TriageQuestion[] = [
+    {
+      id: 'q1',
+      text: {
+        en: 'Are the spots dry and papery, or do they look slimy/water-soaked?',
+        te: 'మచ్చలు ఎండిపోయి కాగితంలా ఉన్నాయా, లేదా జిగటగా/నీటితో తడిసినట్లు ఉన్నాయా?',
+        hi: 'क्या धब्बे सूखे और कागजी हैं, या वे चिपचिपे/पानी से भीगे हुए दिखते हैं?',
+      },
+      options: [
+        {
+          label: { en: 'Dry & Papery', te: 'ఎండిపోయి కాగితంలా', hi: 'सूखे और कागजी' },
+          value: 'dry',
         },
-        problemName: {
-          en: problem.title_en || 'Disease/Pest',
-          te: problem.title_te || problem.title_en || 'తెగులు',
-          hi: problem.title_hi || problem.title_en || 'रोग/कीट',
+        {
+          label: { en: 'Slimy / Water-soaked', te: 'నీటితో తడిసినట్లు', hi: 'चिपचिपे / पानी से भीगे' },
+          value: 'slimy',
         },
-        problemType: (problem.problem_type as any) || 'disease',
-        confidence: Math.round(75 + Math.random() * 20),
-        description: {
-          en: problem.description || `AI detected ${problem.title_en} affecting the crop.`,
-          te: problem.description || `పంటను ప్రభావితం చేసే ${problem.title_en} ఉన్నట్లు గుర్తించబడింది.`,
-          hi: problem.description || `फसल को प्रभावित करने वाले ${problem.title_en} का पता चला है।`,
+        {
+          label: { en: 'Not sure / Normal', te: 'తెలియదు / సాధారణం', hi: 'पता नहीं / सामान्य' },
+          value: 'unknown',
         },
-        symptoms: ['Yellowing leaves', 'Leaf spots', 'Reduced crop vigor'],
-        severity: 'medium',
-        referenceImageKeywords: [problem.title_en || 'crop disease', crop.name_en || 'plant'],
-        isDemoFallback: true,
-      };
-    }
-  } catch (dbError) {
-    console.error('Failed to generate DB fallback mock:', dbError);
-  }
-  
-  // High-fidelity hardcoded fallback if DB query fails completely
-  return {
-    cropName: { en: 'Tomato', te: 'టమోటా', hi: 'टमाटर' },
-    problemName: { en: 'Early Blight', te: 'ఆకు మచ్చ తెగులు', hi: 'అగేతీ అంగమారీ' },
-    problemType: 'disease',
-    confidence: 85,
-    description: {
-      en: 'Tomato Early Blight is caused by the fungus Alternaria solani. It produces target-like spots on leaves and causes yellowing and leaf drop.',
-      te: 'టమోటా ఆకు మచ్చ తెగులు ఆల్టర్నేరియా సోలాని అనే శిలీంద్రం వల్ల వస్తుంది. ఇది ఆకులపై మచ్చలను ఏర్పరుస్తుంది.',
-      hi: 'टमाटर अगेती अंगमारी अल्टरनेरिया सोलानी नामक कवक के कारण होता है। यह पत्तियों पर लक्ष्य जैसे धब्बे बनाता है।'
+      ],
     },
-    symptoms: ['Dark brown concentric spots on older leaves', 'Yellowing surrounding spots', 'Premature leaf drop starting from base'],
-    severity: 'medium',
-    referenceImageKeywords: ['tomato early blight', 'alternaria solani', 'tomato leaf disease'],
+    {
+      id: 'q2',
+      text: {
+        en: 'Where did the yellowing start on the crop?',
+        te: 'పంటపై పసుపు రంగు ఎక్కడ ప్రారంభమైంది?',
+        hi: 'फसल पर पीलापन कहाँ से शुरू हुआ?',
+      },
+      options: [
+        {
+          label: { en: 'Lower older leaves first', te: 'కింది పాత ఆకులపై మొదట', hi: 'पहले निचली पुरानी पत्तियों पर' },
+          value: 'lower',
+        },
+        {
+          label: { en: 'Upper new leaves first', te: 'పై కొత్త ఆకులపై మొదట', hi: 'पहले ऊपरी नई पत्तियों पर' },
+          value: 'upper',
+        },
+        {
+          label: { en: 'Spread uniformly across plant', te: 'మొక్క అంతటా సమానంగా వ్యాపించింది', hi: 'पूरे पौधे पर समान रूप से फैला है' },
+          value: 'uniform',
+        },
+      ],
+    },
+  ];
+
+  return {
+    matchedCropId: crop.id,
+    cropName: {
+      en: crop.name_en,
+      te: crop.name_te || crop.name_en,
+      hi: crop.name_hi || crop.name_en,
+    },
+    potentialProblems: [
+      { title: 'Blast / Leaf Spot', reason: 'Visual patterns suggest fungal infection.' },
+      { title: 'Nutrient Deficiency', reason: 'Chlorosis observed in veins.' },
+    ],
+    questions,
     isDemoFallback: true,
   };
 }
 
-export async function analyzeCropImage(base64Image: string): Promise<ScanResult> {
-  if (!API_KEY) {
-    throw new Error(
-      'Gemini API key is not configured. Please add VITE_GEMINI_API_KEY in your .env file and restart your Vite server (npm run dev).'
-    );
+// ─── Phase 2 Fallback (Demo) ──────────────────────────────────
+export async function getMockTriagePhase2(
+  problemsList: { id: string; title_en: string; title_te: string; title_hi: string; description: string | null; problem_type: string | null }[],
+  answers: { questionId: string; questionText: string; answerLabel: string; answerValue: string }[]
+): Promise<TriagePhase2Result> {
+  if (problemsList.length === 0) {
+    return {
+      matchedProblemId: 'healthy-id',
+      problemName: { en: 'Healthy Crop', te: 'ఆరోగ్యకరమైన పంట', hi: 'स्वस्थ फसल' },
+      problemType: 'healthy',
+      confidence: 95,
+      description: {
+        en: 'The crop appears to be healthy with optimal nutrients and no active pathogen indicators.',
+        te: 'పంట సరైన పోషకాలతో ఆరోగ్యంగా ఉంది.',
+        hi: 'फसल इष्टतम पोषक तत्वों के साथ स्वस्थ दिखाई दे रही है।',
+      },
+      symptoms: ['Green leaves', 'Strong stalk', 'Healthy growth'],
+      severity: 'low',
+      referenceImageKeywords: ['healthy plant'],
+      isDemoFallback: true,
+    };
   }
 
-  const genAI = new GoogleGenerativeAI(API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-  const prompt = `You are an expert agricultural scientist and plant pathologist. Analyze the provided crop/plant image carefully and identify:
-
-1. The crop or plant species shown in the image.
-2. Any visible diseases, pest damage, or nutrient deficiencies.
-3. If the plant appears healthy, indicate that.
-
-You MUST respond with ONLY a valid JSON object (no markdown, no explanation, no extra text). The JSON must strictly follow this schema:
-
-{
-  "cropName": {
-    "en": "<crop name in English>",
-    "te": "<crop name in Telugu>",
-    "hi": "<crop name in Hindi>"
-  },
-  "problemName": {
-    "en": "<problem name in English, or 'Healthy' if no issues>",
-    "te": "<problem name in Telugu, or 'ఆరోగ్యకరమైన' if no issues>",
-    "hi": "<problem name in Hindi, or 'स्वस्थ' if no issues>"
-  },
-  "problemType": "<one of: 'pest', 'disease', 'deficiency', 'healthy'>",
-  "confidence": <number from 0 to 100 indicating your confidence in the diagnosis>,
-  "description": {
-    "en": "<detailed description of the problem and its impact on the crop in English, 2-3 sentences>",
-    "te": "<same description translated to Telugu>",
-    "hi": "<same description translated to Hindi>"
-  },
-  "symptoms": [
-    "<symptom 1 in English>",
-    "<symptom 2 in English>",
-    "<symptom 3 in English>"
-  ],
-  "severity": "<one of: 'low', 'medium', 'high', 'critical'>",
-  "referenceImageKeywords": [
-    "<search keyword 1 for finding similar reference images>",
-    "<search keyword 2>",
-    "<search keyword 3>",
-    "<search keyword 4>",
-    "<search keyword 5>"
-  ]
+  const problem = problemsList[Math.floor(Math.random() * problemsList.length)];
+  return {
+    matchedProblemId: problem.id,
+    problemName: {
+      en: problem.title_en,
+      te: problem.title_te || problem.title_en,
+      hi: problem.title_hi || problem.title_en,
+    },
+    problemType: (problem.problem_type as any) || 'disease',
+    confidence: Math.round(92 + Math.random() * 6),
+    description: {
+      en: problem.description || `AI confirmed ${problem.title_en} based on leaf spot shapes and dry margin symptoms.`,
+      te: problem.description || `ఆకు మచ్చ ఆకారాలు మరియు పొడి అంచుల లక్షణాల ఆధారంగా AI ${problem.title_en}ను నిర్ధారించింది.`,
+      hi: problem.description || `पत्ती के धब्बों और सूखे किनारों के लक्षणों के आधार पर AI ने ${problem.title_en} की पुष्टि की।`,
+    },
+    symptoms: [
+      'Visual brown concentric rings on foliage',
+      `Leaf triage responses matching '${answers[0]?.answerLabel || 'Dry'}'`,
+      `Symptom initiation points matching '${answers[1]?.answerLabel || 'Lower leaves'}'`
+    ],
+    severity: 'medium',
+    referenceImageKeywords: [problem.title_en, 'crop disease'],
+    isDemoFallback: true,
+  };
 }
 
-IMPORTANT RULES:
-- Respond with ONLY the JSON object. No markdown code fences, no backticks, no additional text.
-- The "symptoms" array should contain 3-5 visible symptoms described in English.
-- The "referenceImageKeywords" array should contain 3-5 keywords useful for image searching to find similar disease/pest references.
-- If the crop appears healthy with no visible problems, set "problemType" to "healthy", "severity" to "low", and "confidence" to your confidence that the plant is healthy.
-- The "confidence" value should reflect how certain you are about your diagnosis (0 = not sure at all, 100 = completely certain).
-- Telugu and Hindi translations must be accurate and natural-sounding.
-- Be specific about the disease/pest species when possible.`;
-
+// ─── Live Phase 1 Secure Backend Call ───────────────────────
+export async function initiateCropTriage(
+  base64Image: string,
+  knownCrops: { id: string; name_en: string }[]
+): Promise<TriagePhase1Result> {
   try {
-    const imagePart = {
-      inlineData: {
-        data: base64Image,
-        mimeType: 'image/jpeg',
-      },
-    };
+    const { data, error } = await supabase.functions.invoke('crop-triage', {
+      body: {
+        action: 'initiate',
+        image: base64Image,
+        knownCrops
+      }
+    });
 
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const text = response.text();
-
-    if (!text || text.trim().length === 0) {
-      throw new Error(
-        'Gemini returned an empty response. The image may not contain a recognizable crop.'
-      );
+    if (error) throw error;
+    if (!data) {
+      throw new Error('Received empty response from triage backend.');
+    }
+    if (data.error) {
+      throw new Error(data.error);
     }
 
-    // Strip markdown code blocks if present (```json ... ``` or ``` ... ```)
-    let jsonString = text.trim();
-    const codeBlockMatch = jsonString.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (codeBlockMatch) {
-      jsonString = codeBlockMatch[1].trim();
-    }
-
-    let scanResult: ScanResult;
-    try {
-      scanResult = JSON.parse(jsonString) as ScanResult;
-    } catch (parseError) {
-      console.error('Failed to parse Gemini response as JSON:', text);
-      throw new Error(
-        'Failed to parse the analysis result. The AI response was not in the expected format.'
-      );
-    }
-
-    // Validate essential fields
-    if (!scanResult.cropName || !scanResult.problemType || !scanResult.description) {
-      console.error('Incomplete scan result:', scanResult);
-      throw new Error(
-        'The analysis result is incomplete. Please try again with a clearer image.'
-      );
-    }
-
-    // Clamp confidence to 0-100
-    scanResult.confidence = Math.max(0, Math.min(100, scanResult.confidence ?? 50));
-
-    // Ensure severity is valid
-    const validSeverities = ['low', 'medium', 'high', 'critical'] as const;
-    if (!validSeverities.includes(scanResult.severity)) {
-      scanResult.severity = 'medium';
-    }
-
-    // Ensure problemType is valid
-    const validTypes = ['pest', 'disease', 'deficiency', 'healthy'] as const;
-    if (!validTypes.includes(scanResult.problemType)) {
-      scanResult.problemType = 'disease';
-    }
-
-    return scanResult;
+    return data as TriagePhase1Result;
   } catch (error) {
-    console.error('Gemini analysis failed:', error);
-    let errorMsg = 'An unexpected error occurred during image analysis.';
-    if (error instanceof Error) {
-      errorMsg = error.message;
+    console.error('Phase 1 Edge Function Triage failed:', error);
+    throw new Error(error instanceof Error ? error.message : 'Triage initialization failed.');
+  }
+}
+
+// ─── Live Phase 2 Secure Backend Call ───────────────────────
+export async function confirmCropTriage(
+  base64Image: string,
+  cropNameEn: string,
+  problemsList: { id: string; title_en: string; description: string | null }[],
+  answers: { questionText: string; answerLabel: string; answerValue: string }[]
+): Promise<TriagePhase2Result> {
+  try {
+    const { data, error } = await supabase.functions.invoke('crop-triage', {
+      body: {
+        action: 'confirm',
+        image: base64Image,
+        cropName: cropNameEn,
+        problemsList,
+        answers
+      }
+    });
+
+    if (error) throw error;
+    if (!data) {
+      throw new Error('Received empty response from confirmation backend.');
     }
-    throw new Error(errorMsg);
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    return data as TriagePhase2Result;
+  } catch (error) {
+    console.error('Phase 2 Edge Function Triage failed:', error);
+    throw new Error(error instanceof Error ? error.message : 'Triage confirmation failed.');
   }
 }
